@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 
 	"github.com/go-martini/martini"
 	"github.com/martini-contrib/gzip"

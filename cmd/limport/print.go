@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 )
 
 // PrintTransaction prints a transaction formatted to fit in specified column width.

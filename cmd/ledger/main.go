@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 )
 
 const (

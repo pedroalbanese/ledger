@@ -9,7 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hako/durafmt"
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 )
 
 // PrintStats prints out statistics of the ledger

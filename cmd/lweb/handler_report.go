@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-martini/martini"
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
