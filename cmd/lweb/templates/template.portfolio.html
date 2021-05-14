@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="">
+    <meta name="author" content="">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		
+	<!-- Icon -->
+	<link rel="apple-touch-icon" sizes="57x57" href="/apple-icon-57x57.png">
+	<link rel="apple-touch-icon" sizes="60x60" href="/apple-icon-60x60.png">
+	<link rel="apple-touch-icon" sizes="72x72" href="/apple-icon-72x72.png">
+	<link rel="apple-touch-icon" sizes="76x76" href="/apple-icon-76x76.png">
+	<link rel="apple-touch-icon" sizes="114x114" href="/apple-icon-114x114.png">
+	<link rel="apple-touch-icon" sizes="120x120" href="/apple-icon-120x120.png">
+	<link rel="apple-touch-icon" sizes="144x144" href="/apple-icon-144x144.png">
+	<link rel="apple-touch-icon" sizes="152x152" href="/apple-icon-152x152.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/apple-icon-180x180.png">
+	<link rel="icon" type="image/png" sizes="192x192"  href="/android-icon-192x192.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+	<link rel="manifest" href="/manifest.json">
+	<meta name="msapplication-TileColor" content="#ffffff">
+	<meta name="msapplication-TileImage" content="/ms-icon-144x144.png">
+	<meta name="theme-color" content="#ffffff">
+
+    <title>Ledger - Portfolio</title>
+
+    <!-- Bootstrap core CSS -->
+    <link href="/bootstrap-3.3.0/dist/css/bootstrap.css" rel="stylesheet">
+
+    <!-- Add custom CSS here -->
+    <link href="/padding.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+      <script src="/custom/assets/js/html5shiv.js"></script>
+      <script src="/custom/assets/js/respond.min.js"></script>
+    <![endif]-->
+  </head>
+
+  <body>
+	
+	{{template "nav" .}}
+
+   <div class="container">
+      <div class="content-header">
+        <div class="row">
+			<div class="col-xs-8">
+        		<h1>Portfolio {{.PortfolioName}}<span id="info" class="visible-xs-inline"> - Overall</span></h1>
+			</div>
+			<div class="col-xs-4"><a class="btn btn-default visible-xs-block" href="#" onclick="toggleInfo();">Toggle</a></div>
+		</div>
+      </div>
+      <div class="page-content inset">
+      <div class="row">
+      <div class="col-md-12">
+	
+      <table id="listtable" class="table table-bordered table-hover paginated-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th class="info-overall">Cost</th>
+            <th class="info-overall">Market Value</th>
+            <th class="info-day hidden-xs">Price</th>
+            <th class="info-day hidden-xs">Percent</th>
+            <th class="info-day hidden-xs">Gain/Loss</th>
+            <th class="hidden-xs">Percent</th>
+            <th class="info-overall">Gain/Loss</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Stocks}}
+          <tr {{if eq .Type "Total"}}class="warning"{{end}}{{if eq .Type "Section Total"}}class="info"{{end}}>
+            <td>{{.Name}}</td>
+            <td class="info-overall">{{printf "%.2f" .Cost}}</td>
+            <td class="info-overall">{{printf "%.2f" .MarketValue}}</td>
+            <td class="info-day hidden-xs">{{printf "%.2f" .Price}}</td>
+            <td class="info-day hidden-xs"><p {{if gt .PriceChangePctDay 0.0}}class="text-success"{{end}}{{if lt .PriceChangePctDay 0.0}}class="text-danger"{{end}}>{{printf "%.2f" .PriceChangePctDay}}</p></td>
+            <td class="info-day hidden-xs"><p {{if gt .GainLossDay 0.0}}class="text-success"{{end}}{{if lt .GainLossDay 0.0}}class="text-danger"{{end}}>{{printf "%.2f" .GainLossDay}}</p></td>
+            <td class="hidden-xs"><p {{if gt .PriceChangePctOverall 0.0}}class="text-success"{{end}}{{if lt .PriceChangePctOverall 0.0}}class="text-danger"{{end}}>{{printf "%.2f" .PriceChangePctOverall}}</p></td>
+            <td class="info-overall"><p {{if gt .GainLossOverall 0.0}}class="text-success"{{end}}{{if lt .GainLossOverall 0.0}}class="text-danger"{{end}}>{{printf "%.2f" .GainLossOverall}}</p></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      </div>
+      </div>
+      </div>
+   </div> <!-- /container -->
+
+
+    <!-- Bootstrap core JavaScript
+    ================================================== -->
+    <!-- Placed at the end of the document so the pages load faster -->
+    <script src="/jquery.min.js"></script>
+    <script src="/bootstrap-3.3.0/dist/js/bootstrap.min.js"></script>
+    <script>
+    var overallOn = true;
+    $(document).ready(function() {
+    $('.popover-dismiss').popover({
+          trigger: 'focus',
+          animation: false
+    });
+    });
+    function toggleInfo() {
+      if (overallOn) {
+      $( ".info-overall" ).addClass("hidden-xs")
+      $( ".info-day" ).removeClass("hidden-xs")
+      $( "#info" ).text(' - Day');
+      overallOn = false;
+      } else {
+      $( ".info-day" ).addClass("hidden-xs")
+      $( ".info-overall" ).removeClass("hidden-xs")
+      $( "#info" ).text(' - Overall');
+      overallOn = true;
+      }
+    }
+    </script>
+
+  </body>
+</html>
