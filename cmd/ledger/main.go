@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pedroalbanese/ledger"
+	"github.com/howeyc/ledger"
 )
 
 const (
@@ -41,7 +41,7 @@ func main() {
 	flag.Parse()
 
 	if columnWidth == 79 && columnWide {
-		columnWidth = 113
+		columnWidth = 132
 	}
 
 	if len(ledgerFileName) == 0 {
