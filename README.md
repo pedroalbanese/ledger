@@ -79,11 +79,11 @@ bayesian classification of the payee.
 
 - C++ Ledger permits an empty *Payee Description*; Ledger in Go does not
 
-### Copyright (c) 2013 Chris Howey
+#### Copyright (c) 2013 Chris Howey
 
-Permission to use, copy, modify, and distribute this software for any
+**Permission to use, copy, modify, and distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
+copyright notice and this permission notice appear in all copies.**
 
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
