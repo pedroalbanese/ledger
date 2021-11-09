@@ -1,6 +1,6 @@
 # Ledger in Go
 [![ISC License](http://img.shields.io/badge/license-ISC-blue.svg)](https://github.com/pedroalbanese/ledger/blob/master/LICENSE.md) 
-[![GoDoc](https://godoc.org/github.com/pedroalbanese/ledger?status.png)](http://godoc.org/github.com/pedroalbanese/ledger)
+[![GoDoc](https://godoc.org/github.com/howeyc/ledger?status.png)](http://godoc.org/github.com/howeyc/ledger)
 [![Go Report Card](https://goreportcard.com/badge/github.com/pedroalbanese/ledger)](https://goreportcard.com/report/github.com/pedroalbanese/ledger)
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/pedroalbanese/ledger)](https://golang.org)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/pedroalbanese/ledger)](https://github.com/pedroalbanese/ledger/releases)
@@ -43,7 +43,7 @@ A ledger file may include other ledger files using `include <filepath>`. The
 This will parse a ledger file into an array of Transaction structs.
 There is also a function get balances for all accounts in the ledger file.
 
-[GoDoc](http://godoc.org/github.com/pedroalbanese/ledger/)
+[GoDoc](http://godoc.org/github.com/howeyc/ledger/)
 
 ## cmd/ledger
 
