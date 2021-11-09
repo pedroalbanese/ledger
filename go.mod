@@ -1,4 +1,4 @@
-module github.com/howeyc/ledger
+module github.com/pedroalbanese/ledger
 
 go 1.12
 
