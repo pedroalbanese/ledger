@@ -1,4 +1,4 @@
-Copyright (c) 2013 Chris Howey
+Copyright (c) 2013 Chris Howey,
 Copyright (c) 2021 Pedro Albanese
 
 Permission to use, copy, modify, and distribute this software for any
