@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 )
 
 const (
