@@ -1,6 +1,7 @@
 # Ledger in Go
 [![ISC License](http://img.shields.io/badge/license-ISC-blue.svg)](https://github.com/pedroalbanese/ledger/blob/master/LICENSE.md) 
 [![GoDoc](https://godoc.org/github.com/pedroalbanese/ledger?status.png)](http://godoc.org/github.com/pedroalbanese/ledger)
+[![GitHub downloads](https://img.shields.io/github/downloads/pedroalbanese/ledger/total.svg?logo=github&logoColor=white)](https://github.com/pedroalbanese/ledger/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/pedroalbanese/ledger)](https://goreportcard.com/report/github.com/pedroalbanese/ledger)
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/pedroalbanese/ledger)](https://golang.org)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/pedroalbanese/ledger)](https://github.com/pedroalbanese/ledger/releases)
