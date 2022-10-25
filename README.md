@@ -1,4 +1,4 @@
-# Ledger in Go
+# Ledger
 [![ISC License](http://img.shields.io/badge/license-ISC-blue.svg)](https://github.com/pedroalbanese/ledger/blob/master/LICENSE.md) 
 [![GoDoc](https://godoc.org/github.com/pedroalbanese/ledger?status.png)](http://godoc.org/github.com/pedroalbanese/ledger)
 [![GitHub downloads](https://img.shields.io/github/downloads/pedroalbanese/ledger/total.svg?logo=github&logoColor=white)](https://github.com/pedroalbanese/ledger/releases)
