@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/howeyc/ledger"
+	"github.com/pedroalbanese/ledger"
 
 	"github.com/jbrukh/bayesian"
 )
