@@ -84,13 +84,13 @@ func main() {
 		sb.WriteString("    ")
 		sb.WriteString(*sourceAccount)
 		sb.WriteString(strings.Repeat(" ", 65-len(*sourceAccount)))
-		sb.WriteString(fmt.Sprintf("%10.2f\n", *amount))
+		sb.WriteString(fmt.Sprintf("%10.2f\n", -*amount))
 	}
 	if *targetAccount != "" {
 		sb.WriteString("    ")
 		sb.WriteString(*targetAccount)
 		sb.WriteString(strings.Repeat(" ", 65-len(*targetAccount)))
-		sb.WriteString(fmt.Sprintf("%10.2f\n", -*amount))
+		sb.WriteString(fmt.Sprintf("%10.2f\n", *amount))
 	}
 
 	fmt.Print(sb.String())
