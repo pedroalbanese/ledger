@@ -14,7 +14,7 @@ func main() {
 	sourceAccount := flag.String("sourceaccount", "", "Source account for the transaction")
 	targetAccount := flag.String("targetaccount", "", "Target account for the transaction")
 	payee := flag.String("payee", "", "Payee for the transaction")
-	amount := flag.Float64("amount", 0, "Amount for the transaction")
+	amount := flag.String("amount", "", "Amount for the transaction")
 	date := flag.String("date", "", "Date for the transaction")
 
 	flag.Parse()
@@ -48,8 +48,8 @@ func main() {
 			*payee = val
 		}
 	}
-	if *amount == 0 {
-		if val, ok := transaction["amount"].(float64); ok {
+	if *amount == "" {
+		if val, ok := transaction["amount"].(string); ok {
 			*amount = val
 		}
 	}
@@ -60,12 +60,20 @@ func main() {
 	}
 
 	// Validate required fields
-	if *amount == 0 {
+	if *amount == "" {
 		fmt.Println("Error: amount is required")
 		return
 	}
 	if *date == "" {
 		fmt.Println("Error: date is required")
+		return
+	}
+
+	// Convert amount string to float64
+	amountValue := 0.0
+	_, err = fmt.Sscanf(*amount, "%f", &amountValue)
+	if err != nil {
+		fmt.Println("Error: invalid amount format")
 		return
 	}
 
@@ -84,13 +92,13 @@ func main() {
 		sb.WriteString("    ")
 		sb.WriteString(*sourceAccount)
 		sb.WriteString(strings.Repeat(" ", 65-len(*sourceAccount)))
-		sb.WriteString(fmt.Sprintf("%10.2f\n", -*amount))
+		sb.WriteString(fmt.Sprintf("%10.2f\n", -amountValue))
 	}
 	if *targetAccount != "" {
 		sb.WriteString("    ")
 		sb.WriteString(*targetAccount)
 		sb.WriteString(strings.Repeat(" ", 65-len(*targetAccount)))
-		sb.WriteString(fmt.Sprintf("%10.2f\n", *amount))
+		sb.WriteString(fmt.Sprintf("%10.2f\n", amountValue))
 	}
 
 	fmt.Print(sb.String())
