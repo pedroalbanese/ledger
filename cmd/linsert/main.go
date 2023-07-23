@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"time"
+	"os"
 )
 
 func main() {
@@ -15,6 +16,10 @@ func main() {
 	flag.StringVar(&payee, "payee", "", "Payee name")
 	flag.StringVar(&note, "note", "", "Transaction note")
 	flag.Parse()
+	if len(os.Args) < 2 {
+		flag.PrintDefaults()
+		os.Exit(2)
+	}
 
 	// Format date
 	date := time.Now().Format("2006/01/02")
