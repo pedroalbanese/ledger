@@ -8,96 +8,102 @@ import (
 	"strings"
 )
 
+type Transaction struct {
+	ID            string `json:"id"`
+	Amount        string `json:"amount"`
+	Date          string `json:"date"`
+	Note          string `json:"note"`
+	Payee         string `json:"payee"`
+	SourceAccount string `json:"sourceaccount"`
+	TargetAccount string `json:"targetaccount"`
+}
+
 func main() {
-	// Flags
 	note := flag.String("note", "", "Note for the transaction")
-	sourceAccount := flag.String("sourceaccount", "", "Source account for the transaction")
-	targetAccount := flag.String("targetaccount", "", "Target account for the transaction")
-	payee := flag.String("payee", "", "Payee for the transaction")
-	amount := flag.String("amount", "", "Amount for the transaction")
-	date := flag.String("date", "", "Date for the transaction")
+	sourceAccount := flag.String("sourceaccount", "", "Source account")
+	targetAccount := flag.String("targetaccount", "", "Target account")
+	payee := flag.String("payee", "", "Payee")
+	amount := flag.String("amount", "", "Amount")
+	date := flag.String("date", "", "Date")
+	showUUID := flag.Bool("uuid", false, "Include UUID in ledger output")
 
 	flag.Parse()
 
-	// Read JSON input from STDIN
-	var transaction map[string]interface{}
-	err := json.NewDecoder(os.Stdin).Decode(&transaction)
-	if err != nil {
-		fmt.Println("Error decoding JSON:", err)
-		return
+	var tx Transaction
+	if err := json.NewDecoder(os.Stdin).Decode(&tx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error decoding JSON:", err)
+		os.Exit(1)
 	}
 
-	// Set transaction fields from JSON or flags
-	if *note == "" {
-		if val, ok := transaction["note"].(string); ok {
-			*note = val
-		}
-	}
-	if *sourceAccount == "" {
-		if val, ok := transaction["sourceaccount"].(string); ok {
-			*sourceAccount = val
-		}
-	}
-	if *targetAccount == "" {
-		if val, ok := transaction["targetaccount"].(string); ok {
-			*targetAccount = val
-		}
-	}
-	if *payee == "" {
-		if val, ok := transaction["payee"].(string); ok {
-			*payee = val
-		}
-	}
-	if *amount == "" {
-		if val, ok := transaction["amount"].(string); ok {
-			*amount = val
-		}
-	}
-	if *date == "" {
-		if val, ok := transaction["date"].(string); ok {
-			*date = val
-		}
-	}
-
-	// Validate required fields
-	if *amount == "" {
-		fmt.Println("Error: amount is required")
-		return
-	}
-	if *date == "" {
-		fmt.Println("Error: date is required")
-		return
-	}
-
-	// Convert amount string to float64
-	amountValue := 0.0
-	_, err = fmt.Sscanf(*amount, "%f", &amountValue)
-	if err != nil {
-		fmt.Println("Error: invalid amount format")
-		return
-	}
-
-	// Build the ledger transaction string
-	var sb strings.Builder
+	// Flags sobrescrevem JSON
 	if *note != "" {
-		sb.WriteString("; ")
-		sb.WriteString(*note)
-		sb.WriteString("\n")
+		tx.Note = *note
 	}
-	sb.WriteString(*date)
-	sb.WriteString(" ")
-	sb.WriteString(*payee)
-	sb.WriteString("\n")
 	if *sourceAccount != "" {
-		sb.WriteString("    ")
-		sb.WriteString(*sourceAccount)
-		sb.WriteString(strings.Repeat(" ", 65-len(*sourceAccount)))
-		sb.WriteString(fmt.Sprintf("%10.2f\n", -amountValue))
+		tx.SourceAccount = *sourceAccount
 	}
 	if *targetAccount != "" {
+		tx.TargetAccount = *targetAccount
+	}
+	if *payee != "" {
+		tx.Payee = *payee
+	}
+	if *amount != "" {
+		tx.Amount = *amount
+	}
+	if *date != "" {
+		tx.Date = *date
+	}
+
+	// Validações
+	if tx.Amount == "" {
+		fmt.Fprintln(os.Stderr, "Error: amount is required")
+		os.Exit(1)
+	}
+	if tx.Date == "" {
+		fmt.Fprintln(os.Stderr, "Error: date is required")
+		os.Exit(1)
+	}
+
+	amountValue := 0.0
+	if _, err := fmt.Sscanf(tx.Amount, "%f", &amountValue); err != nil {
+		fmt.Fprintln(os.Stderr, "Error: invalid amount format")
+		os.Exit(1)
+	}
+
+	var sb strings.Builder
+
+	// Comentários
+	if tx.Note != "" {
+		sb.WriteString("; ")
+		sb.WriteString(tx.Note)
+		sb.WriteString("\n")
+	}
+
+	if *showUUID && tx.ID != "" {
+		sb.WriteString("; UUID: ")
+		sb.WriteString(tx.ID)
+		sb.WriteString("\n")
+	}
+
+	// Cabeçalho
+	sb.WriteString(tx.Date)
+	sb.WriteString(" ")
+	sb.WriteString(tx.Payee)
+	sb.WriteString("\n")
+
+	// Lançamentos
+	if tx.SourceAccount != "" {
 		sb.WriteString("    ")
-		sb.WriteString(*targetAccount)
-		sb.WriteString(strings.Repeat(" ", 65-len(*targetAccount)))
+		sb.WriteString(tx.SourceAccount)
+		sb.WriteString(strings.Repeat(" ", 65-len(tx.SourceAccount)))
+		sb.WriteString(fmt.Sprintf("%10.2f\n", -amountValue))
+	}
+
+	if tx.TargetAccount != "" {
+		sb.WriteString("    ")
+		sb.WriteString(tx.TargetAccount)
+		sb.WriteString(strings.Repeat(" ", 65-len(tx.TargetAccount)))
 		sb.WriteString(fmt.Sprintf("%10.2f\n", amountValue))
 	}
 
