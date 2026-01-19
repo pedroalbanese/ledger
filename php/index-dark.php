@@ -470,36 +470,34 @@ function e($text) {
         }
         
         body {
-            background: #f5f5f5;
+            background: #000;
             font-family: 'Courier New', monospace;
             height: 100vh;
             overflow: hidden;
-            color: #333;
         }
         
         .container {
             display: flex;
             height: 100vh;
             gap: 2px;
-            background: #ddd;
+            background: #333;
         }
         
         /* Terminal (60%) */
         .terminal-section {
             flex: 0 0 60%;
-            background: #ffffff;
+            background: #000;
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #ccc;
         }
         
         /* Transaction editor (40%) */
         .transaction-section {
             flex: 0 0 40%;
-            background: #f9f9f9;
+            background: #111;
             display: flex;
             flex-direction: column;
-            color: #333;
+            color: #ccc;
         }
         
         /* Terminal styles */
@@ -510,10 +508,10 @@ function e($text) {
         }
         
         .terminal-header {
-            background: #e8e8e8;
-            color: #333;
+            background: #1a1a1a;
+            color: #ccc;
             padding: 10px 15px;
-            border-bottom: 1px solid #ccc;
+            border-bottom: 1px solid #333;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -526,9 +524,9 @@ function e($text) {
         }
         
         select {
-            background: #ffffff;
-            color: #0066cc;
-            border: 1px solid #bbb;
+            background: #333;
+            color: #0f0;
+            border: 1px solid #555;
             padding: 5px 10px;
             border-radius: 3px;
             font-family: 'Courier New', monospace;
@@ -561,72 +559,56 @@ function e($text) {
         }
         
         .current-file {
-            color: #0066cc;
+            color: #0f0;
             font-size: 12px;
-            font-weight: bold;
         }
         
         .terminal-body {
             flex: 1;
             padding: 15px;
             overflow-y: auto;
-            color: #333;
+            color: #0f0;
             font-size: 14px;
             line-height: 1.4;
-            background: #fdfdfd;
         }
         
         .terminal-input {
-            background: #e8e8e8;
+            background: #111;
             padding: 10px 15px;
-            border-top: 1px solid #ccc;
+            border-top: 1px solid #333;
             display: flex;
             align-items: center;
         }
         
         .prompt {
-            color: #0066cc;
+            color: #0f0;
             margin-right: 10px;
             font-weight: bold;
         }
         
         input[type="text"] {
-            background: #ffffff;
-            border: 1px solid #bbb;
-            color: #333;
+            background: transparent;
+            border: none;
+            color: #0f0;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             outline: none;
-            padding: 5px 8px;
-            border-radius: 3px;
-            flex: 1;
-        }
-        
-        input[type="text"]:focus {
-            border-color: #0066cc;
-            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+            padding: 5px;
         }
         
         .command-output {
             margin-bottom: 15px;
-            background: #ffffff;
-            border-radius: 4px;
-            border: 1px solid #e0e0e0;
-            overflow: hidden;
         }
         
         .command-line {
-            background: #f0f0f0;
-            color: #0066cc;
-            margin-bottom: 0;
+            color: #0f0;
+            margin-bottom: 5px;
             font-weight: bold;
-            padding: 5px 10px;
-            border-bottom: 1px solid #e0e0e0;
         }
         
         /* IMPORTANTE: ESTILO PARA SAÍDA DO TERMINAL COM TAMANHO FIXO E QUEBRA DE LINHA */
         .command-result {
-            color: #333;
+            color: #0f0;
             white-space: pre-wrap; /* Quebra de linha automática */
             word-wrap: break-word; /* Quebra palavras longas */
             word-break: break-all; /* Quebra tudo se necessário */
@@ -634,29 +616,32 @@ function e($text) {
             font-family: 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.4;
-            background: #ffffff;
-            padding: 8px 10px;
+            background: rgba(0, 20, 0, 0.1);
+            padding: 5px;
+            border-radius: 3px;
+            border: 1px solid rgba(0, 80, 0, 0.3);
+            max-width: 100%;
             display: block;
         }
         
         .error {
-            color: #dc3545;
+            color: #ff5555;
         }
         
         .success {
-            color: #28a745;
+            color: #55ff55;
         }
         
         /* Transaction section styles */
         .transaction-header {
-            background: #e8e8e8;
-            color: #333;
+            background: #222;
+            color: #ccc;
             padding: 10px;
-            border-bottom: 1px solid #ccc;
+            border-bottom: 1px solid #333;
         }
         
         .transaction-header h3 {
-            color: #0066cc;
+            color: #0f0;
             margin-bottom: 10px;
             font-size: 16px;
         }
@@ -680,17 +665,16 @@ function e($text) {
         }
         
         .form-group label {
-            color: #0066cc;
+            color: #0f0;
             font-size: 12px;
-            font-weight: bold;
         }
         
         .form-group input[type="text"],
         .form-group input[type="date"],
         .form-group textarea {
-            background: #ffffff;
-            border: 1px solid #bbb;
-            color: #333;
+            background: #222;
+            border: 1px solid #444;
+            color: #ccc;
             padding: 8px;
             border-radius: 3px;
             font-family: 'Courier New', monospace;
@@ -701,13 +685,12 @@ function e($text) {
         .form-group input[type="date"]:focus,
         .form-group textarea:focus {
             outline: none;
-            border-color: #0066cc;
-            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+            border-color: #0f0;
         }
         
         .entries-container {
-            background: #ffffff;
-            border: 1px solid #bbb;
+            background: #222;
+            border: 1px solid #444;
             border-radius: 3px;
             padding: 10px;
             max-height: 200px;
@@ -723,18 +706,18 @@ function e($text) {
         
         .entry-row input[type="text"] {
             flex: 1;
-            background: #ffffff;
-            border: 1px solid #bbb;
-            color: #333;
-            padding: 5px 8px;
+            background: #333;
+            border: 1px solid #555;
+            color: #ccc;
+            padding: 5px;
         }
         
         .entry-row input[type="number"] {
             width: 100px;
-            background: #ffffff;
-            border: 1px solid #bbb;
-            color: #333;
-            padding: 5px 8px;
+            background: #333;
+            border: 1px solid #555;
+            color: #ccc;
+            padding: 5px;
         }
         
         .remove-entry {
@@ -745,10 +728,6 @@ function e($text) {
             height: 25px;
             border-radius: 3px;
             cursor: pointer;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
         }
         
         .add-entry {
@@ -763,9 +742,9 @@ function e($text) {
         }
         
         .transaction-footer {
-            background: #e8e8e8;
+            background: #222;
             padding: 15px;
-            border-top: 1px solid #ccc;
+            border-top: 1px solid #333;
             display: flex;
             gap: 10px;
         }
@@ -783,26 +762,24 @@ function e($text) {
             top: 100%;
             left: 0;
             right: 0;
-            background: #ffffff;
-            border: 1px solid #bbb;
+            background: #222;
+            border: 1px solid #444;
             border-top: none;
             max-height: 150px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         
         .autocomplete-item {
             padding: 8px;
             cursor: pointer;
-            border-bottom: 1px solid #f0f0f0;
-            color: #333;
+            border-bottom: 1px solid #333;
         }
         
         .autocomplete-item:hover {
-            background: #f0f8ff;
-            color: #0066cc;
+            background: #333;
+            color: #0f0;
         }
         
         /* Scrollbars */
@@ -817,14 +794,14 @@ function e($text) {
         .transaction-body::-webkit-scrollbar-track,
         .entries-container::-webkit-scrollbar-track,
         .autocomplete-list::-webkit-scrollbar-track {
-            background: #f0f0f0;
+            background: #1a1a1a;
         }
         
         .terminal-body::-webkit-scrollbar-thumb,
         .transaction-body::-webkit-scrollbar-thumb,
         .entries-container::-webkit-scrollbar-thumb,
         .autocomplete-list::-webkit-scrollbar-thumb {
-            background: #bbb;
+            background: #444;
             border-radius: 4px;
         }
         
@@ -832,7 +809,7 @@ function e($text) {
         .transaction-body::-webkit-scrollbar-thumb:hover,
         .entries-container::-webkit-scrollbar-thumb:hover,
         .autocomplete-list::-webkit-scrollbar-thumb:hover {
-            background: #999;
+            background: #555;
         }
         
         .result-message {
@@ -843,14 +820,14 @@ function e($text) {
         }
         
         .result-success {
-            background: rgba(40, 167, 69, 0.1);
-            color: #28a745;
+            background: rgba(40, 167, 69, 0.2);
+            color: #55ff55;
             border: 1px solid #28a745;
         }
         
         .result-error {
-            background: rgba(220, 53, 69, 0.1);
-            color: #dc3545;
+            background: rgba(220, 53, 69, 0.2);
+            color: #ff5555;
             border: 1px solid #dc3545;
         }
         
@@ -868,13 +845,9 @@ function e($text) {
         }
         
         .welcome-message {
-            color: #666;
+            color: #888;
             margin-bottom: 15px;
             font-style: italic;
-            background: #f9f9f9;
-            padding: 10px;
-            border-radius: 4px;
-            border: 1px solid #eee;
         }
         
         /* Mobile indicator (optional, for debug) */
@@ -882,8 +855,8 @@ function e($text) {
             position: fixed;
             top: 5px;
             right: 5px;
-            background: rgba(0, 102, 204, 0.7);
-            color: white;
+            background: rgba(0, 100, 0, 0.7);
+            color: #0f0;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 10px;
@@ -978,73 +951,6 @@ function e($text) {
             overflow-wrap: anywhere !important;
             word-break: break-all !important;
         }
-        
-        /* Additional light theme improvements */
-        .terminal-section {
-            box-shadow: inset -1px 0 0 #ddd;
-        }
-        
-        .transaction-section {
-            box-shadow: inset 1px 0 0 #ddd;
-        }
-        
-        .btn-info {
-            background: #17a2b8;
-        }
-        
-        .btn-info:hover {
-            background: #138496;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-        }
-        
-        .btn-secondary:hover {
-            background: #5a6268;
-        }
-        
-        .command-line pre {
-            margin: 0;
-            padding: 5px;
-            background: #f8f9fa;
-            border-radius: 3px;
-        }
-        
-        /* Hover effects for buttons */
-        .btn, .remove-entry, .add-entry {
-            transition: all 0.2s ease;
-        }
-        
-        .btn:hover, .remove-entry:hover, .add-entry:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        /* Input focus styles */
-        .form-group input:focus, 
-        .form-group textarea:focus,
-        .entry-row input:focus {
-            border-color: #0066cc;
-            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
-        }
-        
-        /* Status indicators */
-        #totalAmount {
-            font-weight: bold;
-            font-size: 14px;
-        }
-        
-        #balanceStatus {
-            font-weight: bold;
-        }
-        
-        /* File selector styling */
-        select:focus {
-            border-color: #0066cc;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
-        }
     </style>
 </head>
 <body>
@@ -1089,7 +995,7 @@ function e($text) {
                             Ledger CLI Terminal<br>
                             Current file: <?php echo e($currentFile); ?><br>
                             <?php if (isMobileDevice()): ?>
-                                <span style="color: #0066cc;">Mobile mode active (--columns=58, smaller font)</span><br>
+                                <span style="color: #0a0;">Mobile mode active (--columns=58, smaller font)</span><br>
                             <?php endif; ?>
                             Type '--help' to see available commands
                         </div>
@@ -1688,13 +1594,13 @@ function e($text) {
             
             // Check if balanced
             if (Math.abs(total) < 0.01) {
-                totalElement.style.color = '#28a745';
+                totalElement.style.color = '#55ff55';
                 balanceStatus.textContent = 'Transaction balanced';
-                balanceStatus.style.color = '#28a745';
+                balanceStatus.style.color = '#55ff55';
             } else {
-                totalElement.style.color = '#dc3545';
+                totalElement.style.color = '#ff5555';
                 balanceStatus.textContent = 'Unbalanced: ' + total.toFixed(2);
-                balanceStatus.style.color = '#dc3545';
+                balanceStatus.style.color = '#ff5555';
             }
         }
         
