@@ -18,6 +18,7 @@ class EquityCLI
         'e' => null,         // End date
         'payee' => '',       // Payee filter
         'columns' => 79,     // Column width
+        'debug' => false,    // Debug mode
     ];
 
     public function run(array $argv): void
@@ -150,7 +151,19 @@ class EquityCLI
     
     private function generateEquityTransaction(array $transactions): void
     {
-        // Filter by date
+        if ($this->options['debug']) {
+            echo "=== DEBUG MODE ===\n";
+            echo "Total transactions loaded: " . count($transactions) . "\n";
+            echo "Date range: " . $this->options['b'] . " to " . $this->options['e'] . "\n";
+            echo "Payee filter: '" . $this->options['payee'] . "'\n\n";
+        }
+        
+        // Sort transactions by date (as Go assumes)
+        usort($transactions, function($a, $b) {
+            return $a->date <=> $b->date;
+        });
+        
+        // Parse dates
         $start = \DateTime::createFromFormat(TRANSACTION_DATE_FORMAT, $this->options['b']);
         $end = \DateTime::createFromFormat(TRANSACTION_DATE_FORMAT, $this->options['e']);
         
@@ -158,13 +171,76 @@ class EquityCLI
             throw new \RuntimeException("Invalid date format. Use YYYY/MM/DD");
         }
         
+        if ($this->options['debug']) {
+            echo "Parsed start date: " . $start->format('Y/m/d H:i:s') . "\n";
+            echo "Parsed end date: " . $end->format('Y/m/d H:i:s') . "\n\n";
+        }
+        
+        // Implement EXACTLY the same logic as Go:
+        // 1. Find first index where Date > StartDate (After())
+        $startIndex = 0;
+        for ($i = 0; $i < count($transactions); $i++) {
+            if ($transactions[$i]->date > $start) { // After() in Go
+                $startIndex = $i;
+                break;
+            }
+        }
+        
+        // 2. Find last index where Date < EndDate (Before())
+        $endIndex = count($transactions) - 1;
+        for ($i = count($transactions) - 1; $i >= 0; $i--) {
+            if ($transactions[$i]->date < $end) { // Before() in Go
+                $endIndex = $i;
+                break;
+            }
+        }
+        
+        if ($this->options['debug']) {
+            echo "Start index (first after start date): $startIndex\n";
+            echo "End index (last before end date): $endIndex\n";
+        }
+        
+        // 3. Extract slice (as Go does with generalLedger[timeStartIndex:timeEndIndex+1])
         $filtered = [];
-        foreach ($transactions as $transaction) {
-            if ($transaction->date >= $start && $transaction->date <= $end) {
-                if (empty($this->options['payee']) || 
-                    stripos($transaction->payee, $this->options['payee']) !== false) {
-                    $filtered[] = $transaction;
+        if ($startIndex <= $endIndex) {
+            $filtered = array_slice($transactions, $startIndex, $endIndex - $startIndex + 1);
+        }
+        
+        if ($this->options['debug']) {
+            echo "Transactions after date filtering: " . count($filtered) . "\n\n";
+            
+            if (count($filtered) > 0) {
+                echo "First filtered transaction: " . 
+                     $filtered[0]->date->format('Y/m/d') . " - " . 
+                     $filtered[0]->payee . "\n";
+                echo "Last filtered transaction: " . 
+                     end($filtered)->date->format('Y/m/d') . " - " . 
+                     end($filtered)->payee . "\n\n";
+                
+                // Show all filtered transactions for debug
+                if (count($filtered) <= 20) {
+                    echo "All filtered transactions:\n";
+                    foreach ($filtered as $i => $t) {
+                        echo sprintf("%3d", $i) . ": " . 
+                             $t->date->format('Y/m/d') . " - " . 
+                             $t->payee . "\n";
+                    }
+                    echo "\n";
                 }
+            }
+        }
+        
+        // 4. Apply payee filter (as Go does with strings.Contains)
+        if (!empty($this->options['payee'])) {
+            $originalCount = count($filtered);
+            $filtered = array_filter($filtered, function($transaction) {
+                return stripos($transaction->payee, $this->options['payee']) !== false;
+            });
+            $filtered = array_values($filtered); // Reindex
+            
+            if ($this->options['debug']) {
+                echo "Transactions after payee filter: " . count($filtered) . 
+                     " (removed " . ($originalCount - count($filtered)) . ")\n\n";
             }
         }
         
@@ -173,25 +249,59 @@ class EquityCLI
             return;
         }
         
-        // Calculate accumulated balances
+        if ($this->options['debug']) {
+            echo "=== BALANCE CALCULATION ===\n";
+        }
+        
+        // Calculate accumulated balances (same logic as Go)
         $balances = [];
         foreach ($filtered as $transaction) {
             foreach ($transaction->accountChanges as $accountChange) {
-                if ($accountChange->balance === null) continue;
+                if ($accountChange->balance === null) {
+                    if ($this->options['debug']) {
+                        echo "WARNING: null balance for account: " . 
+                             $accountChange->name . " in transaction: " . 
+                             $transaction->payee . "\n";
+                    }
+                    continue;
+                }
                 
                 $accountName = $accountChange->name;
+                $changeValue = $accountChange->balance->toFloat(DISPLAY_PRECISION);
+                
                 if (!isset($balances[$accountName])) {
                     $balances[$accountName] = SimpleRational::zero();
                 }
+                
+                $oldBalance = $balances[$accountName]->toFloat(DISPLAY_PRECISION);
                 $balances[$accountName] = $balances[$accountName]->plus($accountChange->balance);
+                $newBalance = $balances[$accountName]->toFloat(DISPLAY_PRECISION);
+                
+                if ($this->options['debug']) {
+                    echo "Transaction: " . $transaction->date->format('Y/m/d') . 
+                         " | Account: " . str_pad($accountName, 30) . 
+                         " | Change: " . str_pad(sprintf("%8.2f", $changeValue), 10) .
+                         " | Balance: " . sprintf("%8.2f", $newBalance) . "\n";
+                }
             }
         }
         
-        // Remove zero balance accounts
+        if ($this->options['debug']) {
+            echo "\n=== FINAL BALANCES ===\n";
+            foreach ($balances as $name => $balance) {
+                echo str_pad($name, 40) . ": " . 
+                     $balance->toFloat(DISPLAY_PRECISION) . "\n";
+            }
+            echo "\n";
+        }
+        
+        // Remove zero balance accounts (as Go does with ratZero.Cmp)
         $nonZeroBalances = [];
         foreach ($balances as $name => $balance) {
             if (!$balance->isZero()) {
                 $nonZeroBalances[$name] = $balance;
+            } elseif ($this->options['debug']) {
+                echo "Removing zero balance account: $name\n";
             }
         }
         
@@ -203,13 +313,18 @@ class EquityCLI
         // Create equity transaction
         $transaction = new \LedgerPHP\Transaction("Opening Balances", new \DateTime());
         
-        // Use date from last transaction
+        // Use date from last filtered transaction (as Go does)
         if (!empty($filtered)) {
             $lastTransaction = end($filtered);
             $transaction->date = $lastTransaction->date;
+            
+            if ($this->options['debug']) {
+                echo "Using date from last transaction: " . 
+                     $transaction->date->format('Y/m/d') . "\n";
+            }
         }
         
-        // Add non-zero balance accounts
+        // Add non-zero balance accounts (sorted as Go does)
         ksort($nonZeroBalances);
         foreach ($nonZeroBalances as $name => $balance) {
             $accountChange = new \LedgerPHP\AccountChange();
@@ -219,6 +334,9 @@ class EquityCLI
         }
         
         // Print transaction
+        if ($this->options['debug']) {
+            echo "\n=== FINAL TRANSACTION ===\n";
+        }
         $this->printTransaction($transaction);
     }
     
@@ -275,6 +393,7 @@ class EquityCLI
         echo "  -e DATE      End date (default: today)\n";
         echo "  --payee=STR  Filter by payee\n";
         echo "  --columns=N  Column width (default: 79)\n";
+        echo "  --debug      Enable debug output\n";
         echo "  --help       Show this help\n\n";
         echo "Description:\n";
         echo "  Generates an 'Opening Balances' transaction with accumulated balances\n";
