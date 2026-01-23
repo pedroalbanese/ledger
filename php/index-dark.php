@@ -1,10 +1,519 @@
 <?php
 // Configuration
 $ledgerCliPath = __DIR__ . '/ledger-cli.php';
-$defaultFile = 'Journal.txt';
+$defaultFile = '.Journal.txt'; // ARQUIVO OCULTO - ALTERADO
 
-// DEFINIR FUSO HORÁRIO CORRETO - Adicione isto no início
+// DEFINIR FUSO HORÁRIO
 date_default_timezone_set('America/Sao_Paulo'); // Ajuste para seu fuso horário
+
+// ==========================================================
+// FUNÇÃO DE SANITIZAÇÃO DE NOMES DE ARQUIVO (NOVA)
+// ==========================================================
+
+function sanitizeFileName($filename) {
+    // Remove path traversal attempts
+    $filename = basename($filename);
+    // Remove null bytes
+    $filename = str_replace(chr(0), '', $filename);
+    // Remove caracteres perigosos, mantendo ponto para arquivos ocultos
+    $filename = preg_replace('/[^\w\.\-]/', '', $filename);
+    return $filename;
+}
+
+// ==========================================================
+// SISTEMA DE LOGIN - ADICIONADO
+// ==========================================================
+
+// Definir encoding UTF-8 no início do script
+header('Content-Type: text/html; charset=UTF-8');
+
+// Hash SHA-256 da senha para acessar o sistema
+// Deixe vazio para permitir acesso sem senha
+// Para gerar hash: echo hash('sha256', 'suasenha');
+$LOGIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // Exemplo: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
+
+// Iniciar sessão
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Verificar se já está autenticado
+$isAuthenticated = isset($_SESSION['authenticated']) && $_SESSION['authenticated'] === true;
+
+// Função para verificar senha de login
+function verifyLoginPassword($inputPassword) {
+    global $LOGIN_PASSWORD_HASH;
+    
+    // Se o hash estiver vazio, permitir acesso
+    if (empty($LOGIN_PASSWORD_HASH)) {
+        return true;
+    }
+    
+    $hashedInput = hash('sha256', $inputPassword);
+    return hash_equals($LOGIN_PASSWORD_HASH, $hashedInput);
+}
+
+// Processar tentativa de login
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_password'])) {
+    $password = $_POST['login_password'] ?? '';
+    
+    if (verifyLoginPassword($password)) {
+        $_SESSION['authenticated'] = true;
+        $_SESSION['login_time'] = time();
+        $isAuthenticated = true;
+        
+        // Redirecionar para evitar reenvio do formulário
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    } else {
+        $loginError = "Incorrect password!";
+    }
+}
+
+// Processar logout
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: ' . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// Verificar se precisa mostrar tela de login
+// Se hash estiver vazio ou usuário já autenticado, permitir acesso
+$showLogin = !$isAuthenticated && !empty($LOGIN_PASSWORD_HASH);
+
+// Se precisa mostrar login, exibir formulário e parar execução
+if ($showLogin) {
+    displayLoginForm();
+    exit;
+}
+
+// ==========================================================
+// DELETE PASSWORD PROTECTION SYSTEM
+// ==========================================================
+
+// Password for delete operations (SHA-256 hash)
+// Default password: "admin123"
+$DELETE_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+
+// Initialize session for security features
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Function to verify delete password
+function verifyDeletePassword($inputPassword) {
+    global $DELETE_PASSWORD_HASH;
+    $hashedInput = hash('sha256', $inputPassword);
+    return hash_equals($DELETE_PASSWORD_HASH, $hashedInput);
+}
+
+// Function to check if delete is locked due to failed attempts
+function isDeleteLocked() {
+    if (!isset($_SESSION['delete_locked_until'])) {
+        return false;
+    }
+    return time() < $_SESSION['delete_locked_until'];
+}
+
+// Function to get remaining lock time
+function getDeleteLockRemaining() {
+    if (!isset($_SESSION['delete_locked_until'])) {
+        return 0;
+    }
+    $remaining = $_SESSION['delete_locked_until'] - time();
+    return $remaining > 0 ? $remaining : 0;
+}
+
+// Function to handle failed attempt
+function recordFailedDeleteAttempt() {
+    if (!isset($_SESSION['delete_attempts'])) {
+        $_SESSION['delete_attempts'] = 0;
+    }
+    
+    $_SESSION['delete_attempts']++;
+    
+    // Lock for 5 minutes after 3 failed attempts
+    if ($_SESSION['delete_attempts'] >= 3) {
+        $_SESSION['delete_locked_until'] = time() + 300; // 5 minutes
+        $_SESSION['delete_attempts'] = 0;
+        return true; // Locked
+    }
+    
+    return false; // Not locked yet
+}
+
+// Function to reset delete attempts on success
+function resetDeleteAttempts() {
+    $_SESSION['delete_attempts'] = 0;
+    unset($_SESSION['delete_locked_until']);
+}
+
+// ==========================================================
+// UUID GENERATION SYSTEM (DCE 1.1 - Version 1 Time-based)
+// ==========================================================
+
+class UUIDGenerator {
+    // MAC address for node identification (fake one for privacy)
+    private static $node = null;
+    
+    // Clock sequence
+    private static $clock_seq = null;
+    
+    // Last timestamp to ensure uniqueness
+    private static $last_timestamp = 0;
+    
+    // Initialize MAC address and clock sequence
+    private static function init() {
+        if (self::$node === null) {
+            // Generate a pseudo-random MAC address (48 bits)
+            // Using a combination of server IP and random bytes for uniqueness
+            $server_ip = $_SERVER['SERVER_ADDR'] ?? '127.0.0.1';
+            $ip_parts = explode('.', $server_ip);
+            $ip_long = 0;
+            
+            foreach ($ip_parts as $part) {
+                $ip_long = ($ip_long << 8) | (int)$part;
+            }
+            
+            // Generate 6 bytes for MAC address
+            $mac_bytes = [];
+            $mac_bytes[0] = 0x02; // Set multicast bit to 0, locally administered bit to 1
+            $mac_bytes[1] = mt_rand(0, 255);
+            $mac_bytes[2] = mt_rand(0, 255);
+            $mac_bytes[3] = ($ip_long >> 16) & 0xFF;
+            $mac_bytes[4] = ($ip_long >> 8) & 0xFF;
+            $mac_bytes[5] = $ip_long & 0xFF;
+            
+            self::$node = '';
+            foreach ($mac_bytes as $byte) {
+                self::$node .= sprintf('%02x', $byte);
+            }
+        }
+        
+        if (self::$clock_seq === null) {
+            // Initialize clock sequence with random 14-bit number
+            self::$clock_seq = mt_rand(0, 16383); // 2^14 - 1
+        }
+    }
+    
+    /**
+     * Generate a DCE 1.1 (version 1) UUID based on time
+     * Format: time_low(8)-time_mid(4)-time_hi_and_version(4)-clock_seq_hi_and_res(2)clock_seq_low(2)-node(12)
+     */
+    public static function generateUUIDv1() {
+        self::init();
+        
+        // Get current time in 100-nanosecond intervals since 1582-10-15 00:00:00
+        $time = self::getTimestamp();
+        
+        // Ensure uniqueness
+        if ($time <= self::$last_timestamp) {
+            $time = self::$last_timestamp + 1;
+        }
+        self::$last_timestamp = $time;
+        
+        // Split timestamp into parts
+        $time_low = sprintf('%08x', $time & 0xFFFFFFFF);
+        $time_mid = sprintf('%04x', ($time >> 32) & 0xFFFF);
+        $time_hi = sprintf('%04x', ($time >> 48) & 0x0FFF); // 12 bits
+        $time_hi = '1' . substr($time_hi, 1); // Version 1 (0001 in binary)
+        
+        // Clock sequence (14 bits) + variant (2 bits = 10 in binary for DCE 1.1)
+        $clock_seq = self::$clock_seq & 0x3FFF;
+        $clock_seq_hi = ($clock_seq >> 8) & 0x3F;
+        $clock_seq_lo = $clock_seq & 0xFF;
+        
+        // Set variant bits (10xxxxxx for DCE 1.1)
+        $clock_seq_hi = (0x80 | $clock_seq_hi) & 0xBF; // 10xxxxxx
+        
+        // Format UUID
+        $uuid = sprintf('%s-%s-%s-%02x%02x-%s',
+            $time_low,
+            $time_mid,
+            $time_hi,
+            $clock_seq_hi,
+            $clock_seq_lo,
+            self::$node
+        );
+        
+        return strtoupper($uuid);
+    }
+    
+    /**
+     * Get timestamp in 100-nanosecond intervals since 1582-10-15
+     */
+    private static function getTimestamp() {
+        // Gregorian epoch: 1582-10-15 00:00:00 UTC
+        $gregorian_epoch = -12219292800;
+        
+        // Current Unix timestamp
+        $unix_time = microtime(true);
+        
+        // Convert to 100-nanosecond intervals
+        $uuid_time = ($unix_time - $gregorian_epoch) * 10000000;
+        
+        return (int)$uuid_time;
+    }
+    
+    /**
+     * Generate a shorter, more readable transaction ID
+     * Based on timestamp and random component
+     */
+    public static function generateShortID() {
+        $timestamp = time();
+        $random = mt_rand(1000, 9999);
+        $hash = substr(hash('crc32', $timestamp . $random), 0, 6);
+        
+        return sprintf('TXN-%s-%s',
+            date('Ymd-His', $timestamp),
+            strtoupper($hash)
+        );
+    }
+    
+    /**
+     * Validate if a string is a valid UUID
+     */
+    public static function isValidUUID($uuid) {
+        $pattern = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i';
+        return preg_match($pattern, $uuid) === 1;
+    }
+    
+    /**
+     * Extract UUID from transaction text
+     */
+    public static function extractUUID($transactionText) {
+        $lines = explode("\n", $transactionText);
+        foreach ($lines as $line) {
+            if (strpos($line, 'UUID:') !== false) {
+                $parts = explode('UUID:', $line);
+                if (count($parts) > 1) {
+                    $uuid = trim($parts[1]);
+                    if (self::isValidUUID($uuid)) {
+                        return $uuid;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+}
+
+// Function to display login form
+function displayLoginForm() {
+    global $loginError;
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Ledger CLI - Login</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: 'Courier New', monospace;
+                background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+                height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                color: #ccc;
+            }
+            
+            .login-container {
+                background: rgba(20, 20, 30, 0.95);
+                padding: 40px;
+                border-radius: 10px;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+                border: 1px solid rgba(255, 165, 0, 0.2);
+                width: 100%;
+                max-width: 400px;
+                text-align: center;
+            }
+            
+            .login-header {
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 1px solid rgba(255, 165, 0, 0.3);
+            }
+            
+            .login-header h1 {
+                color: #ff9900;
+                font-size: 24px;
+                margin-bottom: 10px;
+                text-shadow: 0 0 10px rgba(255, 153, 0, 0.5);
+            }
+            
+            .login-header p {
+                color: #ffcc80;
+                font-size: 14px;
+            }
+            
+            .login-form {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .form-group {
+                text-align: left;
+            }
+            
+            .form-group label {
+                display: block;
+                margin-bottom: 8px;
+                color: #ff9900;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            
+            .form-group input {
+                width: 100%;
+                padding: 12px 15px;
+                background: rgba(0, 0, 0, 0.5);
+                border: 1px solid rgba(255, 165, 0, 0.3);
+                border-radius: 5px;
+                color: #ff9900;
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                transition: all 0.3s;
+            }
+            
+            .form-group input:focus {
+                outline: none;
+                border-color: #ff9900;
+                box-shadow: 0 0 15px rgba(255, 153, 0, 0.2);
+            }
+            
+            .login-button {
+                background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+                color: white;
+                border: none;
+                padding: 15px;
+                border-radius: 5px;
+                font-family: 'Courier New', monospace;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                transition: all 0.3s;
+                margin-top: 10px;
+            }
+            
+            .login-button:hover {
+                background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+                box-shadow: 0 5px 15px rgba(230, 126, 34, 0.4);
+                transform: translateY(-2px);
+            }
+            
+            .login-button:active {
+                transform: translateY(0);
+            }
+            
+            .error-message {
+                background: rgba(220, 53, 69, 0.2);
+                color: #ff5555;
+                padding: 12px;
+                border-radius: 5px;
+                border: 1px solid rgba(220, 53, 69, 0.5);
+                font-size: 14px;
+                display: <?php echo isset($loginError) ? 'block' : 'none'; ?>;
+            }
+            
+            .security-note {
+                margin-top: 20px;
+                padding-top: 20px;
+                border-top: 1px solid rgba(255, 165, 0, 0.2);
+                font-size: 12px;
+                color: #ffcc80;
+                line-height: 1.6;
+            }
+            
+            .security-note strong {
+                color: #ff9900;
+            }
+            
+            .login-footer {
+                margin-top: 30px;
+                font-size: 11px;
+                color: #666;
+            }
+            
+            @media (max-width: 480px) {
+                .login-container {
+                    padding: 30px 20px;
+                    margin: 20px;
+                }
+                
+                .login-header h1 {
+                    font-size: 20px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="login-container">
+            <div class="login-header">
+                <h1>LEDGER CLI TERMINAL</h1>
+                <p>Restricted Access</p>
+            </div>
+            
+            <?php if (isset($loginError)): ?>
+                <div class="error-message">
+                    <?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?>
+                </div>
+            <?php endif; ?>
+            
+            <form method="POST" class="login-form">
+                <div class="form-group">
+                    <label for="login_password">ACCESS PASSWORD:</label>
+                    <input type="password" 
+                           id="login_password" 
+                           name="login_password" 
+                           placeholder="Enter password"
+                           required
+                           autofocus>
+                </div>
+                
+                <button type="submit" class="login-button">
+                    ENTER SYSTEM
+                </button>
+            </form>
+            
+            <div class="security-note">
+                <strong>SECURITY INFORMATION:</strong><br>
+                * System protected by authentication<br>
+                * Each transaction includes unique UUID<br>
+                * Journal files are hidden (start with .)<br>
+                * Delete function requires additional password
+            </div>
+            
+            <div class="login-footer">
+                Ledger CLI Terminal v1.0 | Financial System
+            </div>
+        </div>
+        
+        <script>
+            // Auto-focus on password field
+            document.getElementById('login_password').focus();
+            
+            // Allow submit with Enter
+            document.getElementById('login_password').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.querySelector('.login-form').submit();
+                }
+            });
+        </script>
+    </body>
+    </html>
+    <?php
+}
+
+// ==========================================================
 
 // Function to detect mobile device
 function isMobileDevice() {
@@ -36,13 +545,20 @@ function isMobileDevice() {
     return false;
 }
 
+// Verificação inicial: se o arquivo padrão não existe, cria
+if (!file_exists($defaultFile)) {
+    file_put_contents($defaultFile, "; Ledger Journal File\n; Created: " . date('Y/m/d H:i:s') . "\n\n");
+    // Tentar definir permissões restritas (funciona em Unix/Linux)
+    @chmod($defaultFile, 0600);
+}
+
 // Check if it's an AJAX request
 $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && 
           strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
 if ($isAjax) {
     // Process AJAX commands
-    $currentFile = $_POST['ledger_file'] ?? $defaultFile;
+    $currentFile = sanitizeFileName($_POST['ledger_file'] ?? $defaultFile); // SANITIZADO
     
     if (isset($_POST['ajax_command'])) {
         $command = trim($_POST['ajax_command']);
@@ -65,8 +581,15 @@ if ($isAjax) {
     }
     
     if (isset($_POST['ajax_change_file'])) {
-        $newFile = $_POST['ajax_file'] ?? $defaultFile;
+        $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
+        $newFile = sanitizeFileName($requestedFile); // SANITIZADO
         $currentFile = $newFile;
+        
+        // Verificar se arquivo existe
+        if (!file_exists($currentFile)) {
+            echo json_encode(['success' => false, 'error' => 'File not found']);
+            exit;
+        }
         
         echo json_encode([
             'success' => true,
@@ -77,7 +600,15 @@ if ($isAjax) {
     }
     
     if (isset($_POST['ajax_add_transaction'])) {
-        $currentFile = $_POST['ajax_file'] ?? $defaultFile;
+        $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
+        
+        // Verificar se arquivo existe
+        if (!file_exists($currentFile)) {
+            echo json_encode(['success' => false, 'error' => 'File not found']);
+            exit;
+        }
+        
         $transactionResult = addTransaction($currentFile);
         
         echo json_encode([
@@ -89,7 +620,64 @@ if ($isAjax) {
     }
     
     if (isset($_POST['ajax_delete_last'])) {
-        $currentFile = $_POST['ajax_file'] ?? $defaultFile;
+        $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
+        $password = $_POST['delete_password'] ?? '';
+        
+        // Verificar se arquivo existe
+        if (!file_exists($currentFile)) {
+            echo json_encode(['success' => false, 'error' => 'File not found']);
+            exit;
+        }
+        
+        // Check if delete is locked
+        if (isDeleteLocked()) {
+            $remaining = getDeleteLockRemaining();
+            echo json_encode([
+                'success' => false,
+                'message' => "Too many failed attempts. Try again in {$remaining} seconds.",
+                'locked' => true,
+                'remaining' => $remaining
+            ]);
+            exit;
+        }
+        
+        // Check if password was provided
+        if (empty($password)) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'Password required for delete operation.',
+                'requires_password' => true
+            ]);
+            exit;
+        }
+        
+        // Verify password
+        if (!verifyDeletePassword($password)) {
+            // Record failed attempt
+            $locked = recordFailedDeleteAttempt();
+            
+            if ($locked) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'Too many failed attempts. Account locked for 5 minutes.',
+                    'locked' => true,
+                    'remaining' => 300
+                ]);
+            } else {
+                $attempts = $_SESSION['delete_attempts'] ?? 0;
+                $remainingAttempts = 3 - $attempts;
+                echo json_encode([
+                    'success' => false,
+                    'message' => "Invalid password. {$remainingAttempts} attempts remaining.",
+                    'remaining_attempts' => $remainingAttempts
+                ]);
+            }
+            exit;
+        }
+        
+        // Password is correct, reset attempts and proceed
+        resetDeleteAttempts();
         $deleteResult = deleteLastTransaction($currentFile);
         
         echo json_encode([
@@ -106,7 +694,8 @@ if ($isAjax) {
 // Process file change (non-AJAX)
 $currentFile = $defaultFile;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_file'])) {
-    $currentFile = $_POST['ledger_file'] ?? $defaultFile;
+    $requestedFile = $_POST['ledger_file'] ?? $defaultFile;
+    $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
 }
 
 // Process command (non-AJAX)
@@ -131,19 +720,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_transaction'])) {
 // Process last transaction deletion (non-AJAX)
 $deleteResult = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_last'])) {
-    $deleteResult = deleteLastTransaction($currentFile);
+    $password = $_POST['delete_password'] ?? '';
+    
+    // Check if delete is locked
+    if (isDeleteLocked()) {
+        $remaining = getDeleteLockRemaining();
+        $deleteResult = "Error: Too many failed attempts. Try again in {$remaining} seconds.";
+    } elseif (empty($password)) {
+        $deleteResult = "Error: Password required for delete operation.";
+    } elseif (!verifyDeletePassword($password)) {
+        // Record failed attempt
+        $locked = recordFailedDeleteAttempt();
+        
+        if ($locked) {
+            $deleteResult = "Error: Too many failed attempts. Account locked for 5 minutes.";
+        } else {
+            $attempts = $_SESSION['delete_attempts'] ?? 0;
+            $remainingAttempts = 3 - $attempts;
+            $deleteResult = "Error: Invalid password. {$remainingAttempts} attempts remaining.";
+        }
+    } else {
+        // Password is correct, reset attempts and proceed
+        resetDeleteAttempts();
+        $deleteResult = deleteLastTransaction($currentFile);
+    }
 }
 
-// List available files
+// List available files (INCLUINDO ARQUIVOS OCULTOS) - MODIFICADO
 $availableFiles = [];
-$txtFiles = glob("*.txt");
-$ledgerFiles = glob("*.ledger");
+$txtFiles = glob(".*.txt");  // Arquivos ocultos .txt (NOVO)
+$txtFiles = array_merge($txtFiles, glob("*.txt"));  // Arquivos normais .txt
+$ledgerFiles = glob(".*.ledger");  // Arquivos ocultos .ledger (NOVO)
+$ledgerFiles = array_merge($ledgerFiles, glob("*.ledger"));  // Arquivos normais .ledger
 $availableFiles = array_merge($txtFiles, $ledgerFiles);
+
+// Remover duplicatas e ordenar
+$availableFiles = array_unique($availableFiles);
+sort($availableFiles);
 
 // Load existing accounts
 $existingAccounts = getExistingAccounts($currentFile);
 
 function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
+    // Sanitizar nome do arquivo
+    $ledgerFile = sanitizeFileName($ledgerFile);
+    
     if (!file_exists($ledgerFile)) {
         return "Error: File '$ledgerFile' not found on server.";
     }
@@ -151,7 +772,12 @@ function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
     if (!file_exists($ledgerCliPath)) {
         return "Error: ledger-cli.php not found at: $ledgerCliPath";
     }
-    
+
+    // BLOQUEIO DOS CARACTERES PERIGOSOS < | > (NOVO)
+    if (strpos($command, '>') !== false || strpos($command, '<') !== false || strpos($command, '|') !== false) {
+        return "Error: Dangerous characters (<, >, |) are not allowed in commands.";
+    }
+        
     // Check if it's a mobile device
     $isMobile = isMobileDevice();
     
@@ -176,6 +802,9 @@ function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
 }
 
 function getExistingAccounts($ledgerFile) {
+    // Sanitizar nome do arquivo
+    $ledgerFile = sanitizeFileName($ledgerFile);
+    
     if (!file_exists($ledgerFile)) {
         return [];
     }
@@ -213,6 +842,9 @@ function getExistingAccounts($ledgerFile) {
 }
 
 function addTransaction($ledgerFile) {
+    // Sanitizar nome do arquivo
+    $ledgerFile = sanitizeFileName($ledgerFile);
+    
     if (!file_exists($ledgerFile)) {
         return "Error: File '$ledgerFile' not found.";
     }
@@ -248,13 +880,19 @@ function addTransaction($ledgerFile) {
         return "Error: Transaction not balanced. Difference: " . number_format($total, 2);
     }
     
+    // Generate UUID for this transaction
+    $uuid = UUIDGenerator::generateUUIDv1();
+    $shortId = UUIDGenerator::generateShortID();
+    
     // Build transaction with proper formatting
     $transaction = "";
     
-    // Add comment if exists
+    // Add UUID and note as comments
     if (!empty($comment)) {
-        $transaction .= "; " . $comment . "\n";
+        $transaction .= "; Note: " . $comment . "\n";
     }
+    $transaction .= "; UUID: " . $uuid . "\n";
+    $transaction .= "; Transaction ID: " . $shortId . "\n";
     
     // Add date and payee
     $transaction .= $date . " " . $payee . "\n";
@@ -323,12 +961,19 @@ function addTransaction($ledgerFile) {
     $content .= $transaction;
     
     // Save the complete content
-    file_put_contents($ledgerFile, $content, LOCK_EX);
-    
-    return "Transaction added successfully!";
+    if (file_put_contents($ledgerFile, $content, LOCK_EX) !== false) {
+        // Tentar definir permissões restritas após salvar
+        @chmod($ledgerFile, 0600);
+        return "Transaction added successfully! (ID: $shortId)";
+    } else {
+        return "Error: Could not save transaction to file.";
+    }
 }
 
 function deleteLastTransaction($ledgerFile) {
+    // Sanitizar nome do arquivo
+    $ledgerFile = sanitizeFileName($ledgerFile);
+    
     if (!file_exists($ledgerFile)) {
         return "Error: File '$ledgerFile' not found.";
     }
@@ -356,11 +1001,11 @@ function deleteLastTransaction($ledgerFile) {
         if (preg_match('/^\d{4}\/\d{2}\/\d{2}/', $line)) {
             $lastTransactionStart = $i;
             
-            // Check for comments before
+            // Check for comments before (UUID lines, notes, etc.)
             for ($j = $i - 1; $j >= 0; $j--) {
                 $prevLine = trim($lines[$j]);
                 if (strpos($prevLine, ';') === 0) {
-                    // It's a comment
+                    // It's a comment (could be UUID, note, etc.)
                     $lastTransactionStart = $j;
                 } else if ($prevLine === '') {
                     // Empty line, stop
@@ -409,17 +1054,9 @@ function deleteLastTransaction($ledgerFile) {
         }
     }
     
-    // If didn't find next transaction, go to end
-    if ($lastTransactionEnd === $totalLines) {
-        // Check for trailing empty lines to include
-        for ($i = $lastTransactionStart; $i < $totalLines; $i++) {
-            if (trim($lines[$i]) === '' && $i > $lastTransactionStart) {
-                // Found empty line after transaction start
-                $lastTransactionEnd = $i + 1;
-                break;
-            }
-        }
-    }
+    // Try to extract UUID before deleting for logging
+    $transactionText = implode("\n", array_slice($lines, $lastTransactionStart, $lastTransactionEnd - $lastTransactionStart));
+    $uuid = UUIDGenerator::extractUUID($transactionText);
     
     // Remove transaction
     $newLines = [];
@@ -432,15 +1069,21 @@ function deleteLastTransaction($ledgerFile) {
     // Rebuild content
     $newContent = implode("\n", $newLines);
     
-    // Remove excessive trailing empty lines
+    // **CORREÇÃO CRÍTICA:**
+    // 1. Remover todo o whitespace do final
     $newContent = rtrim($newContent);
+    
+    // 2. Se ainda houver conteúdo, adicionar duas quebras de linha
     if (!empty($newContent)) {
-        $newContent .= "\n";
+        $newContent .= "\n\n\n";
     }
     
     // Save back
     if (file_put_contents($ledgerFile, $newContent, LOCK_EX) !== false) {
-        return "Last transaction removed successfully!";
+        // Tentar definir permissões restritas após salvar
+        @chmod($ledgerFile, 0600);
+        $uuidInfo = $uuid ? " (UUID: " . substr($uuid, 0, 8) . "...)" : "";
+        return "Last transaction removed successfully!$uuidInfo";
     } else {
         return "Error saving file.";
     }
@@ -463,6 +1106,47 @@ function e($text) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ledger CLI Terminal</title>
     <style>
+        /* Add logout button styles */
+        .logout-button {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            transition: background 0.2s;
+            margin-left: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .logout-button:hover {
+            background: #5a6268;
+        }
+        
+        .login-info {
+            color: #e67e22;
+            font-size: 11px;
+            margin-left: 10px;
+        }
+        
+        .login-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: auto; /* Isso empurra o conteúdo para a direita */
+        }
+        
+        /* Estilo para o contêiner do cabeçalho do terminal */
+        .terminal-header-content {
+            display: flex;
+            width: 100%;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -513,7 +1197,6 @@ function e($text) {
             padding: 10px 15px;
             border-bottom: 1px solid #333;
             display: flex;
-            justify-content: space-between;
             align-items: center;
         }
         
@@ -525,7 +1208,7 @@ function e($text) {
         
         select {
             background: #333;
-            color: #0f0;
+            color: #ff9900;
             border: 1px solid #555;
             padding: 5px 10px;
             border-radius: 3px;
@@ -535,7 +1218,7 @@ function e($text) {
         }
         
         .btn {
-            background: #28a745;
+            background: #28a745; /* VERDE DO CÓDIGO QUE VOCÊ MOSTROU */
             color: white;
             border: none;
             padding: 5px 10px;
@@ -544,10 +1227,11 @@ function e($text) {
             font-family: 'Courier New', monospace;
             font-size: 12px;
             transition: background 0.2s;
+            white-space: nowrap;
         }
         
         .btn:hover {
-            background: #218838;
+            background: #218838; /* VERDE MAIS ESCURO NO HOVER */
         }
         
         .btn-danger {
@@ -559,15 +1243,16 @@ function e($text) {
         }
         
         .current-file {
-            color: #0f0;
+            color: #ff9900;
             font-size: 12px;
+            font-weight: bold;
         }
         
         .terminal-body {
             flex: 1;
             padding: 15px;
             overflow-y: auto;
-            color: #0f0;
+            color: #ff9900;
             font-size: 14px;
             line-height: 1.4;
         }
@@ -578,22 +1263,27 @@ function e($text) {
             border-top: 1px solid #333;
             display: flex;
             align-items: center;
+            gap: 10px;
+            flex-wrap: nowrap;
         }
         
         .prompt {
-            color: #0f0;
-            margin-right: 10px;
+            color: #ff9900;
             font-weight: bold;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         
         input[type="text"] {
             background: transparent;
             border: none;
-            color: #0f0;
+            color: #ff9900;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             outline: none;
             padding: 5px;
+            flex: 1;
+            min-width: 0;
         }
         
         .command-output {
@@ -601,25 +1291,25 @@ function e($text) {
         }
         
         .command-line {
-            color: #0f0;
+            color: #ff9900;
             margin-bottom: 5px;
             font-weight: bold;
         }
         
         /* IMPORTANTE: ESTILO PARA SAÍDA DO TERMINAL COM TAMANHO FIXO E QUEBRA DE LINHA */
         .command-result {
-            color: #0f0;
-            white-space: pre-wrap; /* Quebra de linha automática */
-            word-wrap: break-word; /* Quebra palavras longas */
-            word-break: break-all; /* Quebra tudo se necessário */
-            overflow-wrap: break-word; /* Suporte moderno para quebra */
+            color: #ff9900;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-all;
+            overflow-wrap: break-word;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.4;
-            background: rgba(0, 20, 0, 0.1);
+            background: rgba(40, 20, 0, 0.1);
             padding: 5px;
             border-radius: 3px;
-            border: 1px solid rgba(0, 80, 0, 0.3);
+            border: 1px solid rgba(128, 80, 0, 0.3);
             max-width: 100%;
             display: block;
         }
@@ -629,7 +1319,7 @@ function e($text) {
         }
         
         .success {
-            color: #55ff55;
+            color: #ffaa55;
         }
         
         /* Transaction section styles */
@@ -641,7 +1331,7 @@ function e($text) {
         }
         
         .transaction-header h3 {
-            color: #0f0;
+            color: #ff9900;
             margin-bottom: 10px;
             font-size: 16px;
         }
@@ -665,7 +1355,7 @@ function e($text) {
         }
         
         .form-group label {
-            color: #0f0;
+            color: #ff9900;
             font-size: 12px;
         }
         
@@ -685,7 +1375,7 @@ function e($text) {
         .form-group input[type="date"]:focus,
         .form-group textarea:focus {
             outline: none;
-            border-color: #0f0;
+            border-color: #ff9900;
         }
         
         .entries-container {
@@ -779,7 +1469,7 @@ function e($text) {
         
         .autocomplete-item:hover {
             background: #333;
-            color: #0f0;
+            color: #ff9900;
         }
         
         /* Scrollbars */
@@ -820,9 +1510,9 @@ function e($text) {
         }
         
         .result-success {
-            background: rgba(40, 167, 69, 0.2);
-            color: #55ff55;
-            border: 1px solid #28a745;
+            background: rgba(230, 126, 34, 0.2);
+            color: #ffaa55;
+            border: 1px solid #e67e22;
         }
         
         .result-error {
@@ -855,13 +1545,13 @@ function e($text) {
             position: fixed;
             top: 5px;
             right: 5px;
-            background: rgba(0, 100, 0, 0.7);
-            color: #0f0;
+            background: rgba(128, 80, 0, 0.7);
+            color: #ff9900;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 10px;
             z-index: 9999;
-            display: none; /* Keep as 'none' for production */
+            display: none;
         }
 
         @media (max-width: 600px) {
@@ -892,6 +1582,23 @@ function e($text) {
                 padding: 15px !important;
                 font-size: 16px !important;
             }
+            
+            .terminal-input {
+                padding: 8px 10px;
+                gap: 5px;
+            }
+            
+            .terminal-input input[type="text"] {
+                font-size: 11px;
+                min-width: 0;
+                flex: 1;
+            }
+            
+            .btn {
+                padding: 4px 8px;
+                font-size: 11px;
+                flex-shrink: 0;
+            }
         }
         
         /* Styles specific for mobile devices */
@@ -910,6 +1617,23 @@ function e($text) {
             
             .prompt {
                 font-size: 9px;
+            }
+            
+            .terminal-input {
+                padding: 8px 10px;
+                gap: 5px;
+            }
+            
+            .terminal-input input[type="text"] {
+                font-size: 11px;
+                min-width: 0;
+                flex: 1;
+            }
+            
+            .btn {
+                padding: 4px 8px;
+                font-size: 11px;
+                flex-shrink: 0;
             }
         }
         
@@ -951,6 +1675,146 @@ function e($text) {
             overflow-wrap: anywhere !important;
             word-break: break-all !important;
         }
+        
+        /* Delete password modal styles for dark theme */
+        #deletePasswordModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 10000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-content {
+            background: #222;
+            padding: 30px;
+            border-radius: 8px;
+            width: 300px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border: 1px solid #444;
+        }
+        
+        .modal-title {
+            color: #ff5555;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 18px;
+        }
+        
+        .modal-message {
+            margin-bottom: 20px;
+            color: #ccc;
+            text-align: center;
+            line-height: 1.5;
+        }
+        
+        .modal-input {
+            width: 100%;
+            padding: 10px;
+            background: #333;
+            border: 1px solid #555;
+            color: #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .modal-input:focus {
+            outline: none;
+            border-color: #ff5555;
+            box-shadow: 0 0 0 2px rgba(255, 85, 85, 0.1);
+        }
+        
+        .modal-error {
+            color: #ff5555;
+            font-size: 12px;
+            margin-bottom: 15px;
+            text-align: center;
+            display: none;
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .modal-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        
+        .modal-btn-cancel {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .modal-btn-cancel:hover {
+            background: #5a6268;
+        }
+        
+        .modal-btn-confirm {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .modal-btn-confirm:hover {
+            background: #c82333;
+        }
+        
+        .modal-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .locked-message {
+            background: rgba(255, 243, 205, 0.1);
+            color: #ffd700;
+            border: 1px solid rgba(255, 234, 167, 0.3);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        .lock-timer {
+            text-align: center;
+            font-size: 24px;
+            color: #ff5555;
+            margin: 20px 0;
+            font-family: monospace;
+        }
+        
+        .security-note {
+            color: #ff5555;
+            font-size: 11px;
+            font-weight: bold;
+        }
+        
+        .uuid-info {
+            color: #00aaff;
+            font-size: 10px;
+            font-style: italic;
+            margin-top: 5px;
+        }
+        
+        .hidden-file-note {
+            color: #ffaa00;
+            font-size: 10px;
+            font-style: italic;
+            margin-top: 3px;
+        }
     </style>
 </head>
 <body>
@@ -959,21 +1823,58 @@ function e($text) {
         <?php echo isMobileDevice() ? 'MOBILE' : 'DESKTOP'; ?>
     </div>
     
+    <!-- Delete Password Modal -->
+    <div id="deletePasswordModal">
+        <div class="modal-content">
+            <h3 class="modal-title">Confirm Delete</h3>
+            <p class="modal-message">
+                Enter password to delete last transaction<br>
+                <small style="font-size: 11px; color: #999;">Default password: admin123</small>
+            </p>
+            <input type="password" 
+                   id="deletePasswordInput" 
+                   class="modal-input" 
+                   placeholder="Enter delete password">
+            <div id="deletePasswordError" class="modal-error"></div>
+            <div class="modal-buttons">
+                <button type="button" 
+                        class="modal-btn modal-btn-cancel" 
+                        id="cancelDeleteBtn">
+                    Cancel
+                </button>
+                <button type="button" 
+                        class="modal-btn modal-btn-confirm" 
+                        id="confirmDeleteBtn">
+                    Delete
+                </button>
+            </div>
+        </div>
+    </div>
+    
     <div class="container">
         <!-- Terminal Section (60%) -->
         <div class="terminal-section">
             <div class="terminal">
                 <div class="terminal-header">
-                    <div class="file-selector">
-                        <select name="ledger_file" id="fileSelector">
-                            <option value="">-- Select file --</option>
-                            <?php foreach ($availableFiles as $file): ?>
-                                <option value="<?php echo e($file); ?>" <?php echo ($currentFile === $file) ? 'selected' : ''; ?>>
-                                    <?php echo e($file); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                        <span class="current-file" id="currentFileDisplay"><?php echo e($currentFile); ?></span>
+                    <div class="terminal-header-content">
+                        <div class="file-selector">
+                            <select name="ledger_file" id="fileSelector">
+                                <option value="">-- Select file --</option>
+                                <?php foreach ($availableFiles as $file): ?>
+                                    <option value="<?php echo e($file); ?>" <?php echo ($currentFile === $file) ? 'selected' : ''; ?>>
+                                        <?php echo e($file); ?>
+                                        <?php if (substr($file, 0, 1) === '.'): ?>
+                                            (hidden)
+                                        <?php endif; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php if ($isAuthenticated): ?>
+                            <div class="login-status">
+                                <a href="?logout=1" class="logout-button">Logout</a>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
                 
@@ -990,28 +1891,43 @@ function e($text) {
                         </div>
                     <?php endif; ?>
                     
-                    <?php if (empty($commandOutput)): ?>
+                    <?php if (!empty($transactionResult)): ?>
+                        <div class="command-output <?php echo strpos($transactionResult, 'Error') === false ? 'success' : 'error'; ?>">
+                            <div class="command-result"><?php echo formatOutput($transactionResult); ?></div>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if (!empty($deleteResult)): ?>
+                        <div class="command-output <?php echo strpos($deleteResult, 'Error') === false ? 'success' : 'error'; ?>">
+                            <div class="command-result"><?php echo formatOutput($deleteResult); ?></div>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if (empty($commandOutput) && empty($transactionResult) && empty($deleteResult)): ?>
                         <div class="welcome-message">
                             Ledger CLI Terminal<br>
-                            Current file: <?php echo e($currentFile); ?><br>
-                            <?php if (isMobileDevice()): ?>
-                                <span style="color: #0a0;">Mobile mode active (--columns=58, smaller font)</span><br>
+                            Current file: <?php echo e($currentFile); ?>
+                            <?php if (substr($currentFile, 0, 1) === '.'): ?>
+                                <span style="color: #ffaa00;"> (hidden file)</span>
                             <?php endif; ?>
-                            Type '--help' to see available commands
+                            <br>
+                            <?php if (isMobileDevice()): ?>
+                                <span style="color: #ff9900;">Mobile mode active (--columns=58, smaller font)</span><br>
+                            <?php endif; ?>
+                            Type '--help' to see available commands<br>
                         </div>
                     <?php endif; ?>
                 </div>
                 
                 <div class="terminal-input">
-                    <div style="display: flex; width: 100%; align-items: center;">
-                        <span class="prompt">$</span>
-                        <input type="text" id="commandInput" 
-                               placeholder="Type a command (ex: bal, print, stats, accounts...)" 
-                               autocomplete="off" 
-                               autofocus
-                               value="<?php echo isset($_POST['command']) ? e($_POST['command']) : ''; ?>">
-                        <button type="button" id="executeButton" class="btn" style="margin-left: 10px;">Execute</button>
-                    </div>
+                    <span class="prompt">$</span>
+                    <input type="text" id="commandInput" 
+                           placeholder="Type a command (ex: bal, print, stats, accounts...)" 
+                           autocomplete="off" 
+                           autofocus
+                           value="<?php echo isset($_POST['command']) ? e($_POST['command']) : ''; ?>">
+                    <!-- BOTÃO EXECUTE MESMA LINHA NO MOBILE E DESKTOP -->
+                    <button type="button" id="executeButton" class="btn">Execute</button>
                 </div>
             </div>
         </div>
@@ -1083,6 +1999,11 @@ function e($text) {
                 <button type="button" id="deleteLastButton" class="btn btn-danger">
                     Delete Last Transaction
                 </button>
+                <?php if (isDeleteLocked()): ?>
+                    <div class="locked-message" id="deleteLockedMessage">
+                        Delete function locked for <?php echo getDeleteLockRemaining(); ?> seconds
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -1092,6 +2013,8 @@ function e($text) {
         let existingAccounts = <?php echo json_encode($existingAccounts); ?>;
         let currentFile = "<?php echo e($currentFile); ?>";
         let isMobile = <?php echo isMobileDevice() ? 'true' : 'false'; ?>;
+        let isDeleteLocked = <?php echo isDeleteLocked() ? 'true' : 'false'; ?>;
+        let deleteLockRemaining = <?php echo getDeleteLockRemaining(); ?>;
         
         document.addEventListener('DOMContentLoaded', function() {
             // Auto-focus on command field
@@ -1122,6 +2045,23 @@ function e($text) {
             document.getElementById('fileSelector').addEventListener('change', changeFile);
             document.getElementById('addTransactionButton').addEventListener('click', addTransaction);
             document.getElementById('deleteLastButton').addEventListener('click', deleteLastTransaction);
+            
+            // Delete modal events
+            document.getElementById('cancelDeleteBtn').addEventListener('click', cancelDelete);
+            document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+            document.getElementById('deletePasswordInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') confirmDelete();
+            });
+            
+            // Close modal when clicking outside
+            document.getElementById('deletePasswordModal').addEventListener('click', function(e) {
+                if (e.target === this) cancelDelete();
+            });
+            
+            // Update delete lock timer if locked
+            if (isDeleteLocked && deleteLockRemaining > 0) {
+                updateDeleteLockTimer();
+            }
             
             // Keyboard shortcuts
             document.addEventListener('keydown', function(e) {
@@ -1257,6 +2197,20 @@ function e($text) {
                             currentFile = response.file;
                             document.getElementById('currentFileDisplay').textContent = currentFile;
                             
+                            // Update hidden file note
+                            const currentFileDisplay = document.getElementById('currentFileDisplay');
+                            let hiddenNote = currentFileDisplay.nextElementSibling;
+                            if (currentFile.startsWith('.')) {
+                                if (!hiddenNote || !hiddenNote.classList.contains('hidden-file-note')) {
+                                    const note = document.createElement('span');
+                                    note.className = 'hidden-file-note';
+                                    note.textContent = ' (hidden file)';
+                                    currentFileDisplay.parentNode.insertBefore(note, currentFileDisplay.nextSibling);
+                                }
+                            } else if (hiddenNote && hiddenNote.classList.contains('hidden-file-note')) {
+                                hiddenNote.remove();
+                            }
+                            
                             // Update accounts for autocomplete
                             existingAccounts = response.accounts;
                             setupAutocomplete();
@@ -1265,7 +2219,9 @@ function e($text) {
                             const terminalOutput = document.getElementById('terminalOutput');
                             terminalOutput.innerHTML = '<div class="welcome-message">' +
                                 'Ledger CLI Terminal<br>' +
-                                'Current file: ' + currentFile + '<br>' +
+                                'Current file: ' + currentFile + 
+                                (currentFile.startsWith('.') ? ' <span style="color: #ffaa00;">(hidden file)</span>' : '') +
+                                '<br>' +
                                 'File changed successfully<br>' +
                                 'Type \'--help\' to see available commands</div>';
                         } else {
@@ -1396,9 +2352,98 @@ function e($text) {
         }
         
         function deleteLastTransaction() {
-            if (!confirm('Are you sure you want to delete the last transaction?')) {
+            // Check if delete is locked
+            if (isDeleteLocked) {
+                const modal = document.getElementById('deletePasswordModal');
+                const modalContent = modal.querySelector('.modal-content');
+                
+                // Modify modal for lock message
+                modalContent.innerHTML = `
+                    <h3 class="modal-title">Delete Locked</h3>
+                    <p class="modal-message">
+                        Delete function is temporarily locked due to too many failed attempts.
+                    </p>
+                    <div class="lock-timer">
+                        ${deleteLockRemaining}s
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" 
+                                class="modal-btn modal-btn-cancel" 
+                                onclick="cancelDelete()" 
+                                style="flex: 1;">
+                            Close
+                        </button>
+                    </div>
+                `;
+                
+                modal.style.display = 'flex';
                 return;
             }
+            
+            // Show password modal
+            const modal = document.getElementById('deletePasswordModal');
+            const input = document.getElementById('deletePasswordInput');
+            const error = document.getElementById('deletePasswordError');
+            
+            // Reset modal to default
+            modal.querySelector('.modal-content').innerHTML = `
+                <h3 class="modal-title">Confirm Delete</h3>
+                <p class="modal-message">
+                    Enter password to delete last transaction<br>
+                </p>
+                <input type="password" 
+                       id="deletePasswordInput" 
+                       class="modal-input" 
+                       placeholder="Enter delete password">
+                <div id="deletePasswordError" class="modal-error"></div>
+                <div class="modal-buttons">
+                    <button type="button" 
+                            class="modal-btn modal-btn-cancel" 
+                            id="cancelDeleteBtn">
+                        Cancel
+                    </button>
+                    <button type="button" 
+                            class="modal-btn modal-btn-confirm" 
+                            id="confirmDeleteBtn">
+                        Delete
+                    </button>
+                </div>
+            `;
+            
+            // Re-attach events
+            document.getElementById('cancelDeleteBtn').addEventListener('click', cancelDelete);
+            document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDelete);
+            document.getElementById('deletePasswordInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') confirmDelete();
+            });
+            
+            modal.style.display = 'flex';
+            document.getElementById('deletePasswordInput').value = '';
+            document.getElementById('deletePasswordError').style.display = 'none';
+            document.getElementById('deletePasswordInput').focus();
+        }
+        
+        function cancelDelete() {
+            const modal = document.getElementById('deletePasswordModal');
+            modal.style.display = 'none';
+        }
+        
+        function confirmDelete() {
+            const password = document.getElementById('deletePasswordInput').value.trim();
+            const error = document.getElementById('deletePasswordError');
+            const confirmBtn = document.getElementById('confirmDeleteBtn');
+            const cancelBtn = document.getElementById('cancelDeleteBtn');
+            
+            if (!password) {
+                error.textContent = 'Password is required';
+                error.style.display = 'block';
+                return;
+            }
+            
+            // Disable buttons during request
+            confirmBtn.disabled = true;
+            cancelBtn.disabled = true;
+            confirmBtn.textContent = 'Deleting...';
             
             // Send via AJAX
             const xhr = new XMLHttpRequest();
@@ -1407,31 +2452,135 @@ function e($text) {
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             
             xhr.onload = function() {
+                // Re-enable buttons
+                confirmBtn.disabled = false;
+                cancelBtn.disabled = false;
+                confirmBtn.textContent = 'Delete';
+                
                 if (xhr.status === 200) {
                     try {
                         const response = JSON.parse(xhr.responseText);
                         
-                        // Show message in terminal
-                        showTransactionMessageInTerminal(response.message, response.success ? 'success' : 'error');
-                        
                         if (response.success) {
+                            // Close modal
+                            const modal = document.getElementById('deletePasswordModal');
+                            modal.style.display = 'none';
+                            
+                            // Show success message
+                            showTransactionMessageInTerminal(response.message, 'success');
+                            
                             // Update accounts for autocomplete
                             existingAccounts = response.accounts;
                             setupAutocomplete();
+                            
+                            // Reset lock status
+                            isDeleteLocked = false;
+                            deleteLockRemaining = 0;
+                            
+                        } else if (response.requires_password) {
+                            error.textContent = response.message;
+                            error.style.display = 'block';
+                            
+                        } else if (response.locked) {
+                            // Update lock status
+                            isDeleteLocked = true;
+                            deleteLockRemaining = response.remaining;
+                            
+                            // Update modal for lock message
+                            const modal = document.getElementById('deletePasswordModal');
+                            const modalContent = modal.querySelector('.modal-content');
+                            
+                            modalContent.innerHTML = `
+                                <h3 class="modal-title">Delete Locked</h3>
+                                <p class="modal-message">
+                                    Too many failed attempts. Delete function is temporarily locked.
+                                </p>
+                                <div class="lock-timer">
+                                    ${deleteLockRemaining}s
+                                </div>
+                                <div class="modal-buttons">
+                                    <button type="button" 
+                                            class="modal-btn modal-btn-cancel" 
+                                            onclick="cancelDelete()" 
+                                            style="flex: 1;">
+                                        Close
+                                    </button>
+                                </div>
+                            `;
+                            
+                            // Start lock timer
+                            updateDeleteLockTimer();
+                            
+                        } else {
+                            error.textContent = response.message;
+                            error.style.display = 'block';
+                            
+                            // Clear password field
+                            document.getElementById('deletePasswordInput').value = '';
+                            document.getElementById('deletePasswordInput').focus();
                         }
                     } catch (e) {
-                        showTransactionMessageInTerminal('Error processing response', 'error');
+                        error.textContent = 'Error processing response';
+                        error.style.display = 'block';
                     }
                 } else {
-                    showTransactionMessageInTerminal('Error communicating with server', 'error');
+                    error.textContent = 'Error communicating with server';
+                    error.style.display = 'block';
                 }
+            };
+            
+            xhr.onerror = function() {
+                confirmBtn.disabled = false;
+                cancelBtn.disabled = false;
+                confirmBtn.textContent = 'Delete';
+                error.textContent = 'Connection error';
+                error.style.display = 'block';
             };
             
             const params = new URLSearchParams();
             params.append('ajax_delete_last', '1');
             params.append('ajax_file', currentFile);
+            params.append('delete_password', password);
             
             xhr.send(params.toString());
+        }
+        
+        function updateDeleteLockTimer() {
+            if (!isDeleteLocked || deleteLockRemaining <= 0) return;
+            
+            const timer = setInterval(function() {
+                deleteLockRemaining--;
+                
+                // Update modal if open
+                const modal = document.getElementById('deletePasswordModal');
+                if (modal.style.display === 'flex') {
+                    const timerElement = modal.querySelector('.lock-timer');
+                    if (timerElement) {
+                        timerElement.textContent = `${deleteLockRemaining}s`;
+                    }
+                }
+                
+                // Update locked message in transaction footer
+                const lockedMessage = document.getElementById('deleteLockedMessage');
+                if (lockedMessage) {
+                    lockedMessage.textContent = `Delete function locked for ${deleteLockRemaining} seconds`;
+                }
+                
+                if (deleteLockRemaining <= 0) {
+                    clearInterval(timer);
+                    isDeleteLocked = false;
+                    
+                    // Close modal if open
+                    if (modal.style.display === 'flex') {
+                        modal.style.display = 'none';
+                    }
+                    
+                    // Remove locked message
+                    if (lockedMessage) {
+                        lockedMessage.remove();
+                    }
+                }
+            }, 1000);
         }
         
         function showTransactionMessageInTerminal(message, type) {
@@ -1594,9 +2743,9 @@ function e($text) {
             
             // Check if balanced
             if (Math.abs(total) < 0.01) {
-                totalElement.style.color = '#55ff55';
+                totalElement.style.color = '#ffaa55';
                 balanceStatus.textContent = 'Transaction balanced';
-                balanceStatus.style.color = '#55ff55';
+                balanceStatus.style.color = '#ffaa55';
             } else {
                 totalElement.style.color = '#ff5555';
                 balanceStatus.textContent = 'Unbalanced: ' + total.toFixed(2);
