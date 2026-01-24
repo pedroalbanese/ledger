@@ -3,7 +3,7 @@
 $ledgerCliPath = __DIR__ . '/ledger-cli.php';
 $defaultFile = '.Journal.txt'; // ARQUIVO OCULTO - ALTERADO
 
-// DEFINIR FUSO HORÁRIO
+// DEFINIR FUSO HORÁRIO CORRETO
 date_default_timezone_set('America/Sao_Paulo'); // Ajuste para seu fuso horário
 
 // ==========================================================
@@ -330,7 +330,7 @@ function displayLoginForm() {
                 padding: 40px;
                 border-radius: 10px;
                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
-                border: 1px solid rgba(255, 165, 0, 0.2);
+                border: 1px solid rgba(0, 255, 0, 0.2);
                 width: 100%;
                 max-width: 400px;
                 text-align: center;
@@ -339,18 +339,18 @@ function displayLoginForm() {
             .login-header {
                 margin-bottom: 30px;
                 padding-bottom: 20px;
-                border-bottom: 1px solid rgba(255, 165, 0, 0.3);
+                border-bottom: 1px solid rgba(0, 255, 0, 0.3);
             }
             
             .login-header h1 {
-                color: #ff9900;
+                color: #0f0;
                 font-size: 24px;
                 margin-bottom: 10px;
-                text-shadow: 0 0 10px rgba(255, 153, 0, 0.5);
+                text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
             }
             
             .login-header p {
-                color: #ffcc80;
+                color: #8f8;
                 font-size: 14px;
             }
             
@@ -367,7 +367,7 @@ function displayLoginForm() {
             .form-group label {
                 display: block;
                 margin-bottom: 8px;
-                color: #ff9900;
+                color: #0f0;
                 font-size: 14px;
                 font-weight: bold;
             }
@@ -376,9 +376,9 @@ function displayLoginForm() {
                 width: 100%;
                 padding: 12px 15px;
                 background: rgba(0, 0, 0, 0.5);
-                border: 1px solid rgba(255, 165, 0, 0.3);
+                border: 1px solid rgba(0, 255, 0, 0.3);
                 border-radius: 5px;
-                color: #ff9900;
+                color: #0f0;
                 font-family: 'Courier New', monospace;
                 font-size: 14px;
                 transition: all 0.3s;
@@ -386,12 +386,12 @@ function displayLoginForm() {
             
             .form-group input:focus {
                 outline: none;
-                border-color: #ff9900;
-                box-shadow: 0 0 15px rgba(255, 153, 0, 0.2);
+                border-color: #0f0;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
             }
             
             .login-button {
-                background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+                background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
                 color: white;
                 border: none;
                 padding: 15px;
@@ -405,8 +405,8 @@ function displayLoginForm() {
             }
             
             .login-button:hover {
-                background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
-                box-shadow: 0 5px 15px rgba(230, 126, 34, 0.4);
+                background: linear-gradient(135deg, #34ce57 0%, #28a745 100%);
+                box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
                 transform: translateY(-2px);
             }
             
@@ -427,14 +427,14 @@ function displayLoginForm() {
             .security-note {
                 margin-top: 20px;
                 padding-top: 20px;
-                border-top: 1px solid rgba(255, 165, 0, 0.2);
+                border-top: 1px solid rgba(0, 255, 0, 0.2);
                 font-size: 12px;
-                color: #ffcc80;
+                color: #8f8;
                 line-height: 1.6;
             }
             
             .security-note strong {
-                color: #ff9900;
+                color: #0f0;
             }
             
             .login-footer {
@@ -1127,7 +1127,7 @@ function e($text) {
         }
         
         .login-info {
-            color: #e67e22;
+            color: #28a745;
             font-size: 11px;
             margin-left: 10px;
         }
@@ -1208,7 +1208,7 @@ function e($text) {
         
         select {
             background: #333;
-            color: #ff9900;
+            color: #0f0;
             border: 1px solid #555;
             padding: 5px 10px;
             border-radius: 3px;
@@ -1218,7 +1218,7 @@ function e($text) {
         }
         
         .btn {
-            background: #28a745; /* VERDE DO CÓDIGO QUE VOCÊ MOSTROU */
+            background: #28a745;
             color: white;
             border: none;
             padding: 5px 10px;
@@ -1231,7 +1231,7 @@ function e($text) {
         }
         
         .btn:hover {
-            background: #218838; /* VERDE MAIS ESCURO NO HOVER */
+            background: #218838;
         }
         
         .btn-danger {
@@ -1243,7 +1243,7 @@ function e($text) {
         }
         
         .current-file {
-            color: #ff9900;
+            color: #0f0;
             font-size: 12px;
             font-weight: bold;
         }
@@ -1252,7 +1252,7 @@ function e($text) {
             flex: 1;
             padding: 15px;
             overflow-y: auto;
-            color: #ff9900;
+            color: #0f0;
             font-size: 14px;
             line-height: 1.4;
         }
@@ -1268,7 +1268,7 @@ function e($text) {
         }
         
         .prompt {
-            color: #ff9900;
+            color: #0f0;
             font-weight: bold;
             white-space: nowrap;
             flex-shrink: 0;
@@ -1277,7 +1277,7 @@ function e($text) {
         input[type="text"] {
             background: transparent;
             border: none;
-            color: #ff9900;
+            color: #0f0;
             font-family: 'Courier New', monospace;
             font-size: 14px;
             outline: none;
@@ -1291,14 +1291,14 @@ function e($text) {
         }
         
         .command-line {
-            color: #ff9900;
+            color: #0f0;
             margin-bottom: 5px;
             font-weight: bold;
         }
         
         /* IMPORTANTE: ESTILO PARA SAÍDA DO TERMINAL COM TAMANHO FIXO E QUEBRA DE LINHA */
         .command-result {
-            color: #ff9900;
+            color: #0f0;
             white-space: pre-wrap;
             word-wrap: break-word;
             word-break: break-all;
@@ -1306,10 +1306,10 @@ function e($text) {
             font-family: 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.4;
-            background: rgba(40, 20, 0, 0.1);
+            background: rgba(0, 20, 0, 0.1);
             padding: 5px;
             border-radius: 3px;
-            border: 1px solid rgba(128, 80, 0, 0.3);
+            border: 1px solid rgba(0, 80, 0, 0.3);
             max-width: 100%;
             display: block;
         }
@@ -1319,7 +1319,7 @@ function e($text) {
         }
         
         .success {
-            color: #ffaa55;
+            color: #55ff55;
         }
         
         /* Transaction section styles */
@@ -1331,7 +1331,7 @@ function e($text) {
         }
         
         .transaction-header h3 {
-            color: #ff9900;
+            color: #0f0;
             margin-bottom: 10px;
             font-size: 16px;
         }
@@ -1355,7 +1355,7 @@ function e($text) {
         }
         
         .form-group label {
-            color: #ff9900;
+            color: #0f0;
             font-size: 12px;
         }
         
@@ -1375,7 +1375,7 @@ function e($text) {
         .form-group input[type="date"]:focus,
         .form-group textarea:focus {
             outline: none;
-            border-color: #ff9900;
+            border-color: #0f0;
         }
         
         .entries-container {
@@ -1469,7 +1469,7 @@ function e($text) {
         
         .autocomplete-item:hover {
             background: #333;
-            color: #ff9900;
+            color: #0f0;
         }
         
         /* Scrollbars */
@@ -1510,9 +1510,9 @@ function e($text) {
         }
         
         .result-success {
-            background: rgba(230, 126, 34, 0.2);
-            color: #ffaa55;
-            border: 1px solid #e67e22;
+            background: rgba(40, 167, 69, 0.2);
+            color: #55ff55;
+            border: 1px solid #28a745;
         }
         
         .result-error {
@@ -1545,8 +1545,8 @@ function e($text) {
             position: fixed;
             top: 5px;
             right: 5px;
-            background: rgba(128, 80, 0, 0.7);
-            color: #ff9900;
+            background: rgba(0, 100, 0, 0.7);
+            color: #0f0;
             padding: 2px 5px;
             border-radius: 3px;
             font-size: 10px;
@@ -1912,7 +1912,7 @@ function e($text) {
                             <?php endif; ?>
                             <br>
                             <?php if (isMobileDevice()): ?>
-                                <span style="color: #ff9900;">Mobile mode active (--columns=58, smaller font)</span><br>
+                                <span style="color: #0a0;">Mobile mode active (--columns=58, smaller font)</span><br>
                             <?php endif; ?>
                             Type '--help' to see available commands<br>
                         </div>
@@ -2743,9 +2743,9 @@ function e($text) {
             
             // Check if balanced
             if (Math.abs(total) < 0.01) {
-                totalElement.style.color = '#ffaa55';
+                totalElement.style.color = '#55ff55';
                 balanceStatus.textContent = 'Transaction balanced';
-                balanceStatus.style.color = '#ffaa55';
+                balanceStatus.style.color = '#55ff55';
             } else {
                 totalElement.style.color = '#ff5555';
                 balanceStatus.textContent = 'Unbalanced: ' + total.toFixed(2);
