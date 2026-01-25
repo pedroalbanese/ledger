@@ -286,21 +286,31 @@ class LedgerCLI
             return strcmp($a->name, $b->name);
         });
         
-        // Build complete hierarchy
+        // Build complete hierarchy with ALL accounts and their parents
         $allAccounts = [];
         
         foreach ($balances as $account) {
             $accountName = $account->name;
             $parts = explode(':', $accountName);
             
-            // Add leaf account
+            // Add the leaf account
             if (!isset($allAccounts[$accountName])) {
                 $allAccounts[$accountName] = SimpleRational::zero();
             }
             $allAccounts[$accountName] = $allAccounts[$accountName]->plus($account->balance);
+            
+            // Add all parent accounts along the path
+            for ($i = 1; $i < count($parts); $i++) {
+                $parentName = implode(':', array_slice($parts, 0, $i));
+                if (!isset($allAccounts[$parentName])) {
+                    $allAccounts[$parentName] = SimpleRational::zero();
+                }
+                // Parents accumulate balances from all children
+                $allAccounts[$parentName] = $allAccounts[$parentName]->plus($account->balance);
+            }
         }
         
-        // Apply depth and consolidate
+        // Apply depth limit
         $displayAccounts = [];
         
         foreach ($allAccounts as $accountName => $balance) {
@@ -308,46 +318,17 @@ class LedgerCLI
             $depth = count($parts);
             
             if ($maxDepth < 0 || $depth <= $maxDepth) {
-                // Show this account
-                $displayName = $accountName;
-                
-                if (!isset($displayAccounts[$displayName])) {
-                    $displayAccounts[$displayName] = SimpleRational::zero();
-                }
-                $displayAccounts[$displayName] = $displayAccounts[$displayName]->plus($balance);
+                // Keep account as is
+                $displayAccounts[$accountName] = $balance;
             } else {
                 // Consolidate to parent at maxDepth
-                $displayName = implode(':', array_slice($parts, 0, $maxDepth));
+                $parentName = implode(':', array_slice($parts, 0, $maxDepth));
                 
-                if (!isset($displayAccounts[$displayName])) {
-                    $displayAccounts[$displayName] = SimpleRational::zero();
+                if (!isset($displayAccounts[$parentName])) {
+                    $displayAccounts[$parentName] = SimpleRational::zero();
                 }
-                $displayAccounts[$displayName] = $displayAccounts[$displayName]->plus($balance);
+                $displayAccounts[$parentName] = $displayAccounts[$parentName]->plus($balance);
             }
-        }
-        
-        // Always include root accounts of displayed accounts
-        $rootsToAdd = [];
-        foreach (array_keys($displayAccounts) as $accountName) {
-            $parts = explode(':', $accountName);
-            if (count($parts) > 1) {
-                $root = $parts[0];
-                if (!isset($displayAccounts[$root])) {
-                    $rootsToAdd[$root] = true;
-                }
-            }
-        }
-        
-        // Calculate root balances
-        foreach ($rootsToAdd as $root => $_) {
-            $rootBalance = SimpleRational::zero();
-            foreach ($displayAccounts as $accountName => $balance) {
-                $parts = explode(':', $accountName);
-                if ($parts[0] === $root) {
-                    $rootBalance = $rootBalance->plus($balance);
-                }
-            }
-            $displayAccounts[$root] = $rootBalance;
         }
         
         // Filter zero balance accounts if --empty is not enabled
