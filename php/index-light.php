@@ -1,13 +1,14 @@
 <?php
 // Configuration
 $ledgerCliPath = __DIR__ . '/ledger-cli.php';
-$defaultFile = '.Journal.txt'; // ARQUIVO OCULTO - ALTERADO
+$limportPath = __DIR__ . '/limport.php'; // NEW: path to limport.php
+$defaultFile = '.Journal.txt'; // HIDDEN FILE - CHANGED
 
-// DEFINIR FUSO HORÁRIO CORRETO - Adicione isto no início
-date_default_timezone_set('America/Sao_Paulo'); // Ajuste para seu fuso horário
+// SET TIMEZONE
+date_default_timezone_set('America/Sao_Paulo'); // Adjust to your timezone
 
 // ==========================================================
-// FUNÇÃO DE SANITIZAÇÃO DE NOMES DE ARQUIVO (NOVA)
+// FILENAME SANITIZATION FUNCTION (NEW)
 // ==========================================================
 
 function sanitizeFileName($filename) {
@@ -15,36 +16,36 @@ function sanitizeFileName($filename) {
     $filename = basename($filename);
     // Remove null bytes
     $filename = str_replace(chr(0), '', $filename);
-    // Remove caracteres perigosos, mantendo ponto para arquivos ocultos
+    // Remove dangerous characters, keeping dot for hidden files
     $filename = preg_replace('/[^\w\.\-]/', '', $filename);
     return $filename;
 }
 
 // ==========================================================
-// SISTEMA DE LOGIN - ADICIONADO (THEME LIGHT)
+// LOGIN SYSTEM - ADDED
 // ==========================================================
 
-// Definir encoding UTF-8 no início do script
+// Set UTF-8 encoding at script start
 header('Content-Type: text/html; charset=UTF-8');
 
-// Hash SHA-256 da senha para acessar o sistema
-// Deixe vazio para permitir acesso sem senha
-// Para gerar hash: echo hash('sha256', 'suasenha');
-$LOGIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // Exemplo: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
+// SHA-256 hash of password to access system
+// Leave empty to allow access without password
+// To generate hash: echo hash('sha256', 'admin123');
+$LOGIN_PASSWORD_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // Example: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'
 
-// Iniciar sessão
+// Start session
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Verificar se já está autenticado
+// Check if already authenticated
 $isAuthenticated = isset($_SESSION['authenticated']) && $_SESSION['authenticated'] === true;
 
-// Função para verificar senha de login
+// Function to verify login password
 function verifyLoginPassword($inputPassword) {
     global $LOGIN_PASSWORD_HASH;
     
-    // Se o hash estiver vazio, permitir acesso
+    // If hash is empty, allow access
     if (empty($LOGIN_PASSWORD_HASH)) {
         return true;
     }
@@ -53,7 +54,7 @@ function verifyLoginPassword($inputPassword) {
     return hash_equals($LOGIN_PASSWORD_HASH, $hashedInput);
 }
 
-// Processar tentativa de login
+// Process login attempt
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_password'])) {
     $password = $_POST['login_password'] ?? '';
     
@@ -62,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_password'])) {
         $_SESSION['login_time'] = time();
         $isAuthenticated = true;
         
-        // Redirecionar para evitar reenvio do formulário
+        // Redirect to avoid form resubmission
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;
     } else {
@@ -70,18 +71,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login_password'])) {
     }
 }
 
-// Processar logout
+// Process logout
 if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// Verificar se precisa mostrar tela de login
-// Se hash estiver vazio ou usuário já autenticado, permitir acesso
+// Check if login screen needs to be shown
+// If hash is empty or user already authenticated, allow access
 $showLogin = !$isAuthenticated && !empty($LOGIN_PASSWORD_HASH);
 
-// Se precisa mostrar login, exibir formulário e parar execução
+// If login needs to be shown, display form and stop execution
 if ($showLogin) {
     displayLoginForm();
     exit;
@@ -490,11 +491,12 @@ function displayLoginForm() {
                 * System protected by authentication<br>
                 * Each transaction includes unique UUID<br>
                 * Journal files are hidden (start with .)<br>
-                * Delete function requires additional password
+                * Delete function requires additional password<br>
+                * CSV import available (second tab)
             </div>
             
             <div class="login-footer">
-                Ledger CLI Terminal v1.0 | Financial System
+                Ledger CLI Terminal v1.1 | Financial System | CSV Import
             </div>
         </div>
         
@@ -546,11 +548,549 @@ function isMobileDevice() {
     return false;
 }
 
-// Verificação inicial: se o arquivo padrão não existe, cria
+// Initial check: if default file doesn't exist, create it
 if (!file_exists($defaultFile)) {
     file_put_contents($defaultFile, "; Ledger Journal File\n; Created: " . date('Y/m/d H:i:s') . "\n\n");
-    // Tentar definir permissões restritas (funciona em Unix/Linux)
+    // Try to set restrictive permissions (works on Unix/Linux)
     @chmod($defaultFile, 0600);
+}
+
+// NEW: Check if limport.php file exists
+if (!file_exists($limportPath)) {
+    // Create limport.php file automatically
+    $limportContent = '#!/usr/bin/env php
+<?php
+
+require_once __DIR__ . \'/ledger.php\';
+
+use LedgerPHP\Ledger;
+use LedgerPHP\Parser;
+use LedgerPHP\SimpleRational;
+
+define(\'TRANSACTION_DATE_FORMAT\', \'Y/m/d\');
+define(\'DISPLAY_PRECISION\', 2);
+
+class LimportCLI
+{
+    private $options = [
+        \'f\' => \'\',
+        \'neg\' => false,
+        \'allow-matching\' => false,
+        \'scale\' => 1.0,
+        \'set-search\' => \'Expenses\',
+        \'date-format\' => \'m/d/Y\',
+        \'delimiter\' => \',\',
+        \'columns\' => 79,
+        \'wide\' => false,
+    ];
+    
+    private $account;
+    private $csvFileName;
+
+    public function run(array $argv): void
+    {
+        $this->parseArguments($argv);
+        
+        if (empty($this->options[\'f\']) || empty($this->account) || empty($this->csvFileName)) {
+            $this->showUsage();
+            exit(1);
+        }
+        
+        if ($this->options[\'wide\']) {
+            $this->options[\'columns\'] = 132;
+        }
+        
+        try {
+            // Load ledger
+            $ledgerContent = file_get_contents($this->options[\'f\']);
+            if ($ledgerContent === false) {
+                throw new \RuntimeException("Could not read ledger file");
+            }
+            
+            $generalLedger = Parser::parseLedger($ledgerContent);
+            
+            // FIND DESTINATION ACCOUNT
+            $this->account = $this->findDestinationAccount($generalLedger, $this->account);
+            if ($this->account === null) {
+                throw new \RuntimeException("Unable to find matching account.");
+            }
+            
+            // BUILD BAYESIAN CLASSIFIER (same as Go)
+            $classifier = $this->buildBayesianClassifier($generalLedger);
+            
+            // Process CSV
+            $this->processCSV($generalLedger, $classifier);
+            
+        } catch (\Exception $e) {
+            echo "Error: " . $e->getMessage() . "\n";
+            exit(1);
+        }
+    }
+    
+    private function findDestinationAccount(array $transactions, string $accountSubstring): ?string
+    {
+        $allAccounts = [];
+        foreach ($transactions as $transaction) {
+            foreach ($transaction->accountChanges as $accountChange) {
+                $allAccounts[$accountChange->name] = true;
+            }
+        }
+        
+        $matchingAccounts = [];
+        foreach (array_keys($allAccounts) as $accountName) {
+            if (stripos($accountName, $accountSubstring) !== false) {
+                $matchingAccounts[] = $accountName;
+            }
+        }
+        
+        if (empty($matchingAccounts)) {
+            return null;
+        }
+        
+        return $matchingAccounts[count($matchingAccounts) - 1];
+    }
+    
+    private function buildBayesianClassifier(array $transactions): array
+    {
+        // First, collect all accounts that contain the search string
+        $classes = [];
+        
+        foreach ($transactions as $transaction) {
+            foreach ($transaction->accountChanges as $accountChange) {
+                if (stripos($accountChange->name, $this->options[\'set-search\']) !== false) {
+                    $classes[$accountChange->name] = true;
+                }
+            }
+        }
+        
+        $classes = array_keys($classes);
+        
+        // Initialize classifier
+        $classifier = [
+            \'classes\' => $classes,
+            \'datas\' => [],
+            \'learned\' => 0
+        ];
+        
+        foreach ($classes as $class) {
+            $classifier[\'datas\'][$class] = [
+                \'freqs\' => [],
+                \'total\' => 0
+            ];
+        }
+        
+        // Train the classifier - same as Go
+        foreach ($transactions as $transaction) {
+            $payeeWords = $this->extractWords($transaction->payee);
+            
+            foreach ($transaction->accountChanges as $accountChange) {
+                $accountName = $accountChange->name;
+                
+                // Only consider accounts that are in the classes
+                if (in_array($accountName, $classes)) {
+                    foreach ($payeeWords as $word) {
+                        if (!isset($classifier[\'datas\'][$accountName][\'freqs\'][$word])) {
+                            $classifier[\'datas\'][$accountName][\'freqs\'][$word] = 0;
+                        }
+                        $classifier[\'datas\'][$accountName][\'freqs\'][$word]++;
+                        $classifier[\'datas\'][$accountName][\'total\']++;
+                    }
+                    $classifier[\'learned\']++;
+                }
+            }
+        }
+        
+        return $classifier;
+    }
+    
+    private function extractWords(string $text): array
+    {
+        // SAME AS GO: simply splits by spaces, keeps all words
+        $text = strtolower(trim($text));
+        $words = preg_split(\'/\\s+/\', $text, -1, PREG_SPLIT_NO_EMPTY);
+        return $words ?: [];
+    }
+    
+    private function getWordProb(array $classData, string $word): float
+    {
+        // SAME AS GO: P(W|C) = (count(W,C) + 1) / (total_words_in_C + vocabulary_size)
+        $vocabSize = count($classData[\'freqs\']);
+        if ($classData[\'total\'] == 0 || $vocabSize == 0) {
+            return 1e-11; // defaultProb from Go
+        }
+        
+        $value = $classData[\'freqs\'][$word] ?? 0;
+        return ($value + 1) / ($classData[\'total\'] + $vocabSize);
+    }
+    
+    private function getPriors(array $classifier): array
+    {
+        // SAME AS GO: P(C_j) = (count_j + 1) / (total + num_classes)
+        $n = count($classifier[\'classes\']);
+        $priors = [];
+        $sum = 0;
+        
+        foreach ($classifier[\'classes\'] as $index => $class) {
+            $total = $classifier[\'datas\'][$class][\'total\'];
+            $priors[$index] = $total;
+            $sum += $total;
+        }
+        
+        // Apply Laplace smoothing
+        $floatN = (float)$n;
+        $floatSum = (float)$sum;
+        foreach ($priors as $index => $prior) {
+            $priors[$index] = ($prior + 1) / ($floatSum + $floatN);
+        }
+        
+        return $priors;
+    }
+    
+    private function logScores(array $classifier, array $document): array
+    {
+        // SAME AS GO: classifier.LogScores()
+        $n = count($classifier[\'classes\']);
+        $scores = array_fill(0, $n, 0.0);
+        $priors = $this->getPriors($classifier);
+        
+        foreach ($classifier[\'classes\'] as $index => $class) {
+            $data = $classifier[\'datas\'][$class];
+            $score = log($priors[$index]);
+            
+            foreach ($document as $word) {
+                $wordProb = $this->getWordProb($data, $word);
+                $score += log($wordProb);
+            }
+            
+            $scores[$index] = $score;
+        }
+        
+        return $scores;
+    }
+    
+    private function findMax(array $scores): array
+    {
+        // SAME AS GO: findMax function
+        $inx = 0;
+        $strict = true;
+        
+        for ($i = 1; $i < count($scores); $i++) {
+            if ($scores[$inx] < $scores[$i]) {
+                $inx = $i;
+                $strict = true;
+            } elseif ($scores[$inx] == $scores[$i]) {
+                $strict = false;
+            }
+        }
+        
+        return [\'inx\' => $inx, \'strict\' => $strict];
+    }
+    
+    private function classifyPayee(array $classifier, string $payee): string
+    {
+        $words = $this->extractWords($payee);
+        
+        if (empty($words) || empty($classifier[\'classes\'])) {
+            return \'unknown:unknown\';
+        }
+        
+        $scores = $this->logScores($classifier, $words);
+        $result = $this->findMax($scores);
+        
+        return $classifier[\'classes\'][$result[\'inx\']];
+    }
+    
+    private function parseArguments(array $argv): void
+    {
+        $options = [];
+        $positionalArgs = [];
+        
+        $i = 1;
+        while ($i < count($argv)) {
+            $arg = $argv[$i];
+            
+            if ($arg === \'--help\') {
+                $this->showUsage();
+                exit(0);
+            }
+            
+            if (strpos($arg, \'--\') === 0) {
+                if (strpos($arg, \'=\') !== false) {
+                    $parts = explode(\'=\', substr($arg, 2), 2);
+                    $key = $parts[0];
+                    $value = $parts[1];
+                    $options[$key] = $value;
+                } else {
+                    $key = substr($arg, 2);
+                    if ($i + 1 < count($argv) && strpos($argv[$i + 1], \'-\') !== 0) {
+                        $options[$key] = $argv[$i + 1];
+                        $i++;
+                    } else {
+                        $options[$key] = true;
+                    }
+                }
+            } elseif (strpos($arg, \'-\') === 0 && strlen($arg) == 2) {
+                $key = $arg[1];
+                if ($i + 1 < count($argv) && strpos($argv[$i + 1], \'-\') !== 0) {
+                    $options[$key] = $argv[$i + 1];
+                    $i++;
+                } else {
+                    $options[$key] = true;
+                }
+            } else {
+                $positionalArgs[] = $arg;
+            }
+            
+            $i++;
+        }
+        
+        $this->options = array_merge($this->options, $options);
+        
+        if (count($positionalArgs) >= 2) {
+            $this->account = $positionalArgs[0];
+            $this->csvFileName = $positionalArgs[1];
+        } else {
+            echo "Error: Insufficient arguments.\n";
+            $this->showUsage();
+            exit(1);
+        }
+    }
+    
+    private function processCSV(array $generalLedger, array $classifier): void
+    {
+        if (!file_exists($this->csvFileName)) {
+            throw new \RuntimeException("CSV file not found: " . $this->csvFileName);
+        }
+        
+        $csvContent = file_get_contents($this->csvFileName);
+        if ($csvContent === false) {
+            throw new \RuntimeException("Could not read CSV file");
+        }
+        
+        $lines = explode("\n", trim($csvContent));
+        $header = str_getcsv(array_shift($lines), $this->options[\'delimiter\']);
+        
+        $dateColumn = $payeeColumn = $amountColumn = $commentColumn = $uuidColumn = $buyerColumn = -1;
+        
+        foreach ($header as $index => $fieldName) {
+            $fieldName = strtolower(trim($fieldName));
+            if (strpos($fieldName, \'date\') !== false) {
+                $dateColumn = $index;
+            } elseif (strpos($fieldName, \'description\') !== false || strpos($fieldName, \'payee\') !== false) {
+                $payeeColumn = $index;
+            } elseif (strpos($fieldName, \'amount\') !== false || strpos($fieldName, \'expense\') !== false) {
+                $amountColumn = $index;
+            } elseif (strpos($fieldName, \'note\') !== false) {
+                $commentColumn = $index;
+            } elseif (strpos($fieldName, \'uuid\') !== false) {
+                $uuidColumn = $index;
+            } elseif (strpos($fieldName, \'buyer\') !== false) {
+                $buyerColumn = $index;
+            }
+        }
+        
+        if ($dateColumn < 0 || $payeeColumn < 0 || $amountColumn < 0) {
+            throw new \RuntimeException("Unable to find columns required from header field names.");
+        }
+        
+        foreach ($lines as $line) {
+            if (trim($line) === \'\') continue;
+            
+            $record = str_getcsv($line, $this->options[\'delimiter\']);
+            $record = array_pad($record, max($dateColumn, $payeeColumn, $amountColumn, $commentColumn, $uuidColumn, $buyerColumn) + 1, \'\');
+            
+            $dateStr = trim($record[$dateColumn]);
+            $date = $this->parseDate($dateStr);
+            
+            if ($date === false) {
+                continue;
+            }
+            
+            $payee = trim($record[$payeeColumn]);
+            $payeeWords = explode(\' \', $payee);
+            
+            if (!$this->options[\'allow-matching\'] && $this->existingTransaction($generalLedger, $date, $payeeWords[0] ?? \'\')) {
+                continue;
+            }
+            
+            // Classify using EXACTLY the same algorithm as Go
+            $classifiedAccount = $this->classifyPayee($classifier, $payee);
+            
+            // Parse value
+            $amountStr = trim($record[$amountColumn]);
+            $amount = $this->parseAmount($amountStr);
+            
+            if ($amount === null) {
+                continue;
+            }
+            
+            $amount *= (float)$this->options[\'scale\'];
+            
+            // Logic from Go
+            $csvAmount = -$amount;
+            
+            if ($this->options[\'neg\']) {
+                $csvAmount = -$csvAmount;
+            }
+            
+            $expenseAmount = -$csvAmount;
+            
+            // Comments - REMOVE extra space after semicolon
+            $comments = [];
+            if ($commentColumn >= 0 && trim($record[$commentColumn]) !== \'\') {
+                $comments[] = \';\' . trim($record[$commentColumn]); // NO space
+            }
+            if ($uuidColumn >= 0 && trim($record[$uuidColumn]) !== \'\') {
+                $comments[] = \'; UUID: \' . trim($record[$uuidColumn]);
+            }
+            if ($buyerColumn >= 0 && trim($record[$buyerColumn]) !== \'\') {
+                $comments[] = \'; Buyer: \' . trim($record[$buyerColumn]);
+            }
+            
+            // Print transaction
+            $this->printTransaction($date, $payee, $this->account, $csvAmount, $classifiedAccount, $expenseAmount, $comments);
+        }
+    }
+    
+    private function parseDate(string $dateStr)
+    {
+        if (!empty($this->options[\'date-format\'])) {
+            $date = \DateTime::createFromFormat($this->options[\'date-format\'], $dateStr);
+            if ($date !== false) return $date;
+        }
+        
+        $formats = [\'Y-m-d\', \'d/m/Y\', \'d-m-Y\', \'Y/m/d\', \'m/d/Y\', \'m-d-Y\'];
+        foreach ($formats as $format) {
+            $date = \DateTime::createFromFormat($format, $dateStr);
+            if ($date !== false) return $date;
+        }
+        
+        return false;
+    }
+    
+    private function parseAmount(string $amountStr): ?float
+    {
+        $amountStr = trim($amountStr);
+        
+        if (preg_match(\'/^\\((.+)\\)$/\', $amountStr, $matches)) {
+            $amountStr = \'-\' . $matches[1];
+        }
+        
+        $amountStr = preg_replace(\'/[^\\d\\.,\\-]/\', \'\', $amountStr);
+        
+        if ($amountStr === \'\') {
+            return 0.0;
+        }
+        
+        $negative = (substr_count($amountStr, \'-\') % 2) == 1;
+        $amountStr = str_replace(\'-\', \'\', $amountStr);
+        
+        $amountStr = str_replace(\',\', \'.\', $amountStr);
+        
+        if (!is_numeric($amountStr)) {
+            return null;
+        }
+        
+        $amount = (float)$amountStr;
+        if ($negative) {
+            $amount = -$amount;
+        }
+        
+        return $amount;
+    }
+    
+    private function existingTransaction(array $generalLedger, \DateTime $transDate, string $payee): bool
+    {
+        foreach ($generalLedger as $trans) {
+            if ($trans->date->format(\'Y-m-d\') === $transDate->format(\'Y-m-d\')) {
+                if (strpos($trans->payee, $payee) === 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    private function printTransaction(\DateTime $date, string $payee, string $csvAccount, 
+                                     float $csvAmount, string $expenseAccount, 
+                                     float $expenseAmount, array $comments): void
+    {
+        foreach ($comments as $comment) {
+            echo $comment . "\n";
+        }
+        
+        echo $date->format(TRANSACTION_DATE_FORMAT) . " " . $payee . "\n";
+        
+        $this->printAccountLine($csvAccount, $csvAmount);
+        $this->printAccountLine($expenseAccount, $expenseAmount);
+        
+        echo "\n";
+    }
+    
+    private function printAccountLine(string $accountName, float $amount): void
+    {
+        $formattedValue = number_format($amount, DISPLAY_PRECISION, \'.\', \'\');
+        
+        $indent = str_repeat(\' \', 4); // Always 4 spaces indent
+        $nameLength = strlen($accountName);
+        
+        // Calculate available width for name and value
+        $availableWidth = $this->options[\'columns\'] - 4; // 4 spaces indent
+        $valueWidth = 12; // Width for values (10 digits + 2 spaces)
+        
+        // If not enough space, truncate account name
+        if ($nameLength > $availableWidth - $valueWidth - 2) {
+            $maxDisplayLength = $availableWidth - $valueWidth - 5; // Leave space for "..."
+            if ($maxDisplayLength > 10) {
+                $accountName = substr($accountName, 0, $maxDisplayLength) . \'...\';
+                $nameLength = strlen($accountName);
+            }
+        }
+        
+        // Calculate spaces to right align value
+        $totalSpaces = $availableWidth - $nameLength - strlen($formattedValue);
+        if ($totalSpaces < 2) {
+            $totalSpaces = 2;
+        }
+        
+        echo $indent . $accountName . str_repeat(\' \', $totalSpaces) . $formattedValue . "\n";
+    }
+    
+    private function showUsage(): void
+    {
+        echo "Limport - CSV Importer for Ledger (results only)\n";
+        echo "=================================================\n\n";
+        echo "Usage:\n";
+        echo "  php limport.php -f <ledger-file> [options] <account> <csv-file>\n\n";
+        echo "Options:\n";
+        echo "  -f FILE          Ledger file (*required)\n";
+        echo "  --neg            Negate amount column value\n";
+        echo "  --allow-matching Include imported transactions that match existing ledger transactions\n";
+        echo "  --scale=FACTOR   Scaling factor to multiply each imported value by (default: 1.0)\n";
+        echo "  --set-search=STR Search string used to find account set for classification\n";
+        echo "  --date-format=STR Date format (default: m/d/Y)\n";
+        echo "  --delimiter=STR  Field delimiter (default: ,)\n";
+        echo "  --columns=N      Column width (default: 79)\n";
+        echo "  --wide           Wide mode (132 columns)\n";
+        echo "  --help           Show this help\n\n";
+        echo "Examples:\n";
+        echo "  php limport.php -f Journal.txt Paypal paypal.csv\n";
+        echo "  php limport.php -f Journal.txt --set-search Expenses Paypal paypal.csv\n";
+        echo "  php limport.php -f Journal.txt --set-search Utilities Paypal paypal.csv\n";
+        echo "  php limport.php -f Journal.txt --columns=132 Paypal paypal.csv\n";
+        echo "  php limport.php -f Journal.txt --wide Paypal paypal.csv\n\n";
+        echo "This script prints only imported transactions, without debug information.\n";
+    }
+}
+
+if (PHP_SAPI === \'cli\') {
+    $cli = new LimportCLI();
+    $cli->run($argv);
+}';
+    
+    if (file_put_contents($limportPath, $limportContent) !== false) {
+        @chmod($limportPath, 0755);
+    }
 }
 
 // Check if it's an AJAX request
@@ -559,7 +1099,7 @@ $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) &&
 
 if ($isAjax) {
     // Process AJAX commands
-    $currentFile = sanitizeFileName($_POST['ledger_file'] ?? $defaultFile); // SANITIZADO
+    $currentFile = sanitizeFileName($_POST['ledger_file'] ?? $defaultFile); // SANITIZED
     
     if (isset($_POST['ajax_command'])) {
         $command = trim($_POST['ajax_command']);
@@ -583,10 +1123,10 @@ if ($isAjax) {
     
     if (isset($_POST['ajax_change_file'])) {
         $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
-        $newFile = sanitizeFileName($requestedFile); // SANITIZADO
+        $newFile = sanitizeFileName($requestedFile); // SANITIZED
         $currentFile = $newFile;
         
-        // Verificar se arquivo existe
+        // Check if file exists
         if (!file_exists($currentFile)) {
             echo json_encode(['success' => false, 'error' => 'File not found']);
             exit;
@@ -602,9 +1142,9 @@ if ($isAjax) {
     
     if (isset($_POST['ajax_add_transaction'])) {
         $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
-        $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZED
         
-        // Verificar se arquivo existe
+        // Check if file exists
         if (!file_exists($currentFile)) {
             echo json_encode(['success' => false, 'error' => 'File not found']);
             exit;
@@ -622,10 +1162,10 @@ if ($isAjax) {
     
     if (isset($_POST['ajax_delete_last'])) {
         $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
-        $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZED
         $password = $_POST['delete_password'] ?? '';
         
-        // Verificar se arquivo existe
+        // Check if file exists
         if (!file_exists($currentFile)) {
             echo json_encode(['success' => false, 'error' => 'File not found']);
             exit;
@@ -689,6 +1229,61 @@ if ($isAjax) {
         exit;
     }
     
+    // NEW: Process CSV import via AJAX
+    if (isset($_POST['ajax_import_csv'])) {
+        $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZED
+        
+        // Check if file exists
+        if (!file_exists($currentFile)) {
+            echo json_encode(['success' => false, 'error' => 'Ledger file not found']);
+            exit;
+        }
+        
+        // Check if limport.php exists
+        if (!file_exists($limportPath)) {
+            echo json_encode(['success' => false, 'error' => 'limport.php not found']);
+            exit;
+        }
+        
+        $importResult = importCSV($currentFile, false); // false = full import, not preview
+        
+        echo json_encode([
+            'success' => strpos($importResult, 'Error') === false,
+            'message' => $importResult,
+            'accounts' => getExistingAccounts($currentFile)
+        ]);
+        exit;
+    }
+    
+    // NEW: Process CSV preview via AJAX
+    if (isset($_POST['ajax_preview_csv'])) {
+        $requestedFile = $_POST['ajax_file'] ?? $defaultFile;
+        $currentFile = sanitizeFileName($requestedFile); // SANITIZED
+        
+        // Check if file exists
+        if (!file_exists($currentFile)) {
+            echo json_encode(['success' => false, 'error' => 'Ledger file not found']);
+            exit;
+        }
+        
+        // Check if limport.php exists
+        if (!file_exists($limportPath)) {
+            echo json_encode(['success' => false, 'error' => 'limport.php not found']);
+            exit;
+        }
+        
+        $previewResult = importCSV($currentFile, true); // true = preview mode
+        
+        echo json_encode([
+            'success' => true,
+            'is_preview' => true,
+            'message' => $previewResult,
+            'accounts' => getExistingAccounts($currentFile)
+        ]);
+        exit;
+    }
+    
     exit;
 }
 
@@ -696,7 +1291,7 @@ if ($isAjax) {
 $currentFile = $defaultFile;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_file'])) {
     $requestedFile = $_POST['ledger_file'] ?? $defaultFile;
-    $currentFile = sanitizeFileName($requestedFile); // SANITIZADO
+    $currentFile = sanitizeFileName($requestedFile); // SANITIZED
 }
 
 // Process command (non-AJAX)
@@ -716,6 +1311,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['command'])) {
 $transactionResult = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_transaction'])) {
     $transactionResult = addTransaction($currentFile);
+}
+
+// NEW: Process CSV import (non-AJAX)
+$importResult = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_csv'])) {
+    $importResult = importCSV($currentFile, false);
+}
+
+// NEW: Process CSV preview (non-AJAX)
+$previewResult = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['preview_csv'])) {
+    $previewResult = importCSV($currentFile, true);
 }
 
 // Process last transaction deletion (non-AJAX)
@@ -747,15 +1354,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_last'])) {
     }
 }
 
-// List available files (INCLUINDO ARQUIVOS OCULTOS) - MODIFICADO
+// List available files (INCLUDING HIDDEN FILES) - MODIFIED
 $availableFiles = [];
-$txtFiles = glob(".*.txt");  // Arquivos ocultos .txt (NOVO)
-$txtFiles = array_merge($txtFiles, glob("*.txt"));  // Arquivos normais .txt
-$ledgerFiles = glob(".*.ledger");  // Arquivos ocultos .ledger (NOVO)
-$ledgerFiles = array_merge($ledgerFiles, glob("*.ledger"));  // Arquivos normais .ledger
+$txtFiles = glob(".*.txt");  // Hidden .txt files (NEW)
+$txtFiles = array_merge($txtFiles, glob("*.txt"));  // Normal .txt files
+$ledgerFiles = glob(".*.ledger");  // Hidden .ledger files (NEW)
+$ledgerFiles = array_merge($ledgerFiles, glob("*.ledger"));  // Normal .ledger files
 $availableFiles = array_merge($txtFiles, $ledgerFiles);
 
-// Remover duplicatas e ordenar
+// Remove duplicates and sort
 $availableFiles = array_unique($availableFiles);
 sort($availableFiles);
 
@@ -763,7 +1370,7 @@ sort($availableFiles);
 $existingAccounts = getExistingAccounts($currentFile);
 
 function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
-    // Sanitizar nome do arquivo
+    // Sanitize filename
     $ledgerFile = sanitizeFileName($ledgerFile);
     
     if (!file_exists($ledgerFile)) {
@@ -773,16 +1380,33 @@ function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
     if (!file_exists($ledgerCliPath)) {
         return "Error: ledger-cli.php not found at: $ledgerCliPath";
     }
-    
-    // BLOQUEIO DOS CARACTERES PERIGOSOS < | > (NOVO)
+
+    // BLOCK DANGEROUS CHARACTERS < | > (NEW)
     if (strpos($command, '>') !== false || strpos($command, '<') !== false || strpos($command, '|') !== false) {
         return "Error: Dangerous characters (<, >, |) are not allowed in commands.";
+    }
+    
+    // BLOCK -f FLAG TO PREVENT READING OTHER FILES (CORRECTED)
+    // Detect -f at beginning or after space, followed by space or end of string
+    if (preg_match('/(?:^|\s)-f\b/', $command)) {
+        return "Error: The -f flag is not allowed. You can only use the current journal file.";
+    }
+    
+    // BLOCK PATH TRAVERSAL ATTEMPTS
+    if (preg_match('/\.\./', $command)) {
+        return "Error: Path traversal (..) is not allowed in commands.";
+    }
+    
+    // BLOCK COMMANDS WITH EXPLICIT FILES (CORRECTED)
+    // Detect files as arguments (ex: bal /etc/passwd)
+    if (preg_match('/\s+(?:[\'"]?)(?:\.{0,2}\/|[a-zA-Z]:\\\\|[\/\\\])/', $command)) {
+        return "Error: File path references are not allowed in commands.";
     }
     
     // Check if it's a mobile device
     $isMobile = isMobileDevice();
     
-    // Prepare base command
+    // Prepare base command - FILE IS ADDED AUTOMATICALLY
     $fullCommand = "php " . escapeshellarg($ledgerCliPath) . 
                   " -f " . escapeshellarg($ledgerFile);
     
@@ -791,7 +1415,7 @@ function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
         $fullCommand .= " --columns=56";
     }
     
-    // Add user command
+    // Add user command (after sanitization)
     $fullCommand .= " " . $command . " 2>&1";
     
     // Execute command
@@ -802,8 +1426,434 @@ function executeLedgerCommand($command, $ledgerFile, $ledgerCliPath) {
     return implode("\n", $output);
 }
 
+function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = [], $isPreview = false) {
+    global $limportPath;
+    
+    if (!file_exists($limportPath)) {
+        return "Error: limport.php not found at: $limportPath";
+    }
+    
+    if (!file_exists($ledgerFile)) {
+        return "Error: Ledger file '$ledgerFile' not found.";
+    }
+    
+    if (!file_exists($csvFile)) {
+        return "Error: CSV file '$csvFile' not found.";
+    }
+    
+    // DEBUG: Log das opÃ§Ãµes
+    error_log("Limport options received: " . print_r($options, true));
+    
+    // Construir comando na ORDEM CORRETA
+    $command = 'php ' . escapeshellarg($limportPath);
+    
+    // 1. Primeiro: flag -f obrigatÃ³ria
+    $command .= ' -f ' . escapeshellarg($ledgerFile);
+    
+    // 2. Depois: --set-search obrigatÃ³rio
+    if (empty($setSearch)) {
+        $setSearch = 'Expenses';
+    }
+    $command .= ' --set-search=' . escapeshellarg($setSearch);
+    
+    // 3. Flags booleanas (--neg, --allow-matching, --wide) - CORREÃÃO AQUI
+    // Verificar se a opÃ§Ã£o existe e Ã© verdadeira, EXATAMENTE como --wide
+    if (isset($options['neg']) && $options['neg'] === true) {
+        $command .= ' --neg';
+        error_log("Adding --neg flag to command");
+    }
+    
+    if (isset($options['allow_matching']) && $options['allow_matching'] === true) {
+        $command .= ' --allow-matching';
+        error_log("Adding --allow-matching flag to command");
+    }
+    
+    if (isset($options['wide']) && $options['wide'] === true) {
+        $command .= ' --wide';
+        error_log("Adding --wide flag to command");
+    }
+    
+    // 4. OpÃ§Ãµes com valores (apenas se nÃ£o for padrÃ£o)
+    if (isset($options['scale']) && (float)$options['scale'] != 1.0) {
+        $command .= ' --scale=' . escapeshellarg((string)$options['scale']);
+    }
+    
+    if (isset($options['date_format']) && !empty($options['date_format']) && $options['date_format'] != 'm/d/Y') {
+        $command .= ' --date-format=' . escapeshellarg($options['date_format']);
+    }
+    
+    if (isset($options['delimiter']) && !empty($options['delimiter']) && $options['delimiter'] != ',') {
+        $command .= ' --delimiter=' . escapeshellarg($options['delimiter']);
+    }
+    
+    // 5. Argumentos posicionais DEVEM ser os ÃLTIMOS: <account> <csv-file>
+    $command .= ' ' . escapeshellarg($account);
+    $command .= ' ' . escapeshellarg($csvFile);
+    
+    $command .= ' 2>&1';
+    
+    // DEBUG: Log do comando
+    error_log("Limport command: " . $command);
+    
+    // Executar
+    $output = [];
+    $returnCode = 0;
+    exec($command, $output, $returnCode);
+    
+    $result = implode("\n", $output);
+    
+    // DEBUG: Log do resultado
+    error_log("Limport output (first 500 chars): " . substr($result, 0, 500));
+    
+    // Se houver erro de "Insufficient arguments", tente abordagem alternativa
+    if (strpos($result, 'Insufficient arguments') !== false || 
+        strpos($result, 'Error:') === 0) {
+        
+        // Tentar abordagem alternativa: colocar --set-search como espaÃ§o separado
+        $altCommand = 'php ' . escapeshellarg($limportPath);
+        $altCommand .= ' -f ' . escapeshellarg($ledgerFile);
+        
+        // --neg se necessÃ¡rio - CORREÃÃO AQUI TAMBÃM
+        if (isset($options['neg']) && $options['neg'] === true) {
+            $altCommand .= ' --neg';
+        }
+        
+        // --allow-matching se necessÃ¡rio
+        if (isset($options['allow_matching']) && $options['allow_matching'] === true) {
+            $altCommand .= ' --allow-matching';
+        }
+        
+        // --wide se necessÃ¡rio
+        if (isset($options['wide']) && $options['wide'] === true) {
+            $altCommand .= ' --wide';
+        }
+        
+        // --set-search com espaÃ§o (nÃ£o com =)
+        $altCommand .= ' --set-search ' . escapeshellarg($setSearch);
+        
+        // OpÃ§Ãµes com valores
+        if (isset($options['scale']) && (float)$options['scale'] != 1.0) {
+            $altCommand .= ' --scale=' . escapeshellarg((string)$options['scale']);
+        }
+        
+        if (isset($options['date_format']) && !empty($options['date_format']) && $options['date_format'] != 'm/d/Y') {
+            $altCommand .= ' --date-format=' . escapeshellarg($options['date_format']);
+        }
+        
+        if (isset($options['delimiter']) && !empty($options['delimiter']) && $options['delimiter'] != ',') {
+            $altCommand .= ' --delimiter=' . escapeshellarg($options['delimiter']);
+        }
+        
+        // Argumentos posicionais (CONTA e ARQUIVO CSV) - ÃLTIMOS!
+        $altCommand .= ' ' . escapeshellarg($account);
+        $altCommand .= ' ' . escapeshellarg($csvFile);
+        
+        $altCommand .= ' 2>&1';
+        
+        error_log("Limport alt command: " . $altCommand);
+        
+        $altOutput = [];
+        exec($altCommand, $altOutput, $altReturnCode);
+        
+        $result = implode("\n", $altOutput);
+    }
+    
+    // Modo preview
+    if ($isPreview) {
+        $previewHeader = "=== CSV IMPORT PREVIEW ===\n";
+        $previewHeader .= "Ledger file: " . basename($ledgerFile) . "\n";
+        $previewHeader .= "CSV file: " . basename($csvFile) . "\n";
+        $previewHeader .= "Destination account: " . $account . "\n";
+        $previewHeader .= "Set search: " . $setSearch . "\n";
+        $previewHeader .= "Negate amounts: " . (isset($options['neg']) && $options['neg'] ? 'YES' : 'NO') . "\n";
+        $previewHeader .= "Allow matching: " . (isset($options['allow_matching']) && $options['allow_matching'] ? 'YES' : 'NO') . "\n";
+        $previewHeader .= "Scale factor: " . ($options['scale'] ?? 1.0) . "\n";
+        $previewHeader .= "Date format: " . ($options['date_format'] ?? 'm/d/Y') . "\n";
+        $previewHeader .= "Delimiter: " . ($options['delimiter'] ?? ',') . "\n";
+        $previewHeader .= "Wide mode: " . (isset($options['wide']) && $options['wide'] ? 'YES' : 'NO') . "\n";
+        $previewHeader .= "========================================\n\n";
+        
+        $result = $previewHeader . $result;
+        
+        $result .= "\n\n=== PREVIEW MODE ===\n";
+        $result .= "This is a preview. No changes have been made to your ledger file.\n";
+        $result .= "Click 'Import CSV' to actually import these transactions.";
+    }
+    
+    return $result;
+}
+
+// NEW: Function to import CSV (with preview option)
+// NEW: Function to import CSV (with preview option)
+function importCSV($ledgerFile, $isPreview = false) {
+    global $limportPath;
+    
+    // Sanitize filename
+    $ledgerFile = sanitizeFileName($ledgerFile);
+    
+    if (!file_exists($ledgerFile)) {
+        return "Error: Ledger file '$ledgerFile' not found.";
+    }
+    
+    if (!file_exists($limportPath)) {
+        return "Error: limport.php not found.";
+    }
+    
+    // Check if a file was uploaded
+    if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
+        return "Error: No CSV file uploaded or upload error.";
+    }
+    
+    $uploadedFile = $_FILES['csv_file'];
+    
+    // Validate file type
+    $allowedTypes = ['text/csv', 'text/plain', 'application/vnd.ms-excel'];
+    $fileType = mime_content_type($uploadedFile['tmp_name']);
+    
+    if (!in_array($fileType, $allowedTypes) && 
+        pathinfo($uploadedFile['name'], PATHINFO_EXTENSION) !== 'csv') {
+        return "Error: Only CSV files are allowed.";
+    }
+    
+    // Validate file size (max 10MB)
+    if ($uploadedFile['size'] > 10 * 1024 * 1024) {
+        return "Error: File size exceeds 10MB limit.";
+    }
+    
+    // Move file to temporary directory
+    $tempDir = sys_get_temp_dir();
+    $tempFile = tempnam($tempDir, 'csv_upload_');
+    
+    if (!move_uploaded_file($uploadedFile['tmp_name'], $tempFile)) {
+        return "Error: Failed to process uploaded file.";
+    }
+    
+    // Get form parameters
+    $account = trim($_POST['csv_account'] ?? '');
+    $setSearch = trim($_POST['csv_set_search'] ?? 'Expenses');
+    
+    if (empty($account)) {
+        unlink($tempFile);
+        return "Error: Account is required for CSV import.";
+    }
+    
+    // Prepare options - CORREÃÃO CRÃTICA AQUI
+    // Processar checkboxes da mesma forma que --wide
+    $options = [
+        'neg' => isset($_POST['csv_neg']) && ($_POST['csv_neg'] == '1' || $_POST['csv_neg'] == 'on'),
+        'allow_matching' => isset($_POST['csv_allow_matching']) && ($_POST['csv_allow_matching'] == '1' || $_POST['csv_allow_matching'] == 'on'),
+        'scale' => floatval($_POST['csv_scale'] ?? 1.0),
+        'date_format' => $_POST['csv_date_format'] ?? 'm/d/Y',
+        'delimiter' => $_POST['csv_delimiter'] ?? ',',
+        'wide' => isset($_POST['csv_wide']) && ($_POST['csv_wide'] == '1' || $_POST['csv_wide'] == 'on')
+    ];
+    
+    // Execute limport
+    $output = executeLimport($ledgerFile, $tempFile, $account, $setSearch, $options, $isPreview);
+    
+    // Clean up temporary file
+    unlink($tempFile);
+    
+    // Check if output contains errors
+    if (strpos($output, 'Error:') === 0 || strpos($output, 'Erro:') === 0) {
+        return $output;
+    }
+    
+    // If preview mode, just return the output
+    if ($isPreview) {
+        return $output;
+    }
+    
+    // If no error and not preview, check if transactions were imported
+    if (strpos($output, '202') === false && strpos($output, '20') === false) {
+        return "No transactions were imported. Possible reasons:\n" .
+               "- CSV format may be incorrect\n" .
+               "- No matching data found\n" .
+               "- All transactions already exist in ledger (if --allow-matching not enabled)\n\n" .
+               "CSV Output:\n" . $output;
+    }
+    
+    // ==========================================================
+    // CORREÃÃO COMPLETA DA FORMATAÃÃO DO ARQUIVO
+    // ==========================================================
+    
+    // 1. Ler conteÃºdo atual do arquivo ledger
+    $content = file_get_contents($ledgerFile);
+    
+    // 2. Remover TODAS as quebras de linha extras no final
+    $content = rtrim($content);
+    
+    // 3. Extrair transaÃ§Ãµes do output (remover cabeÃ§alho de preview se existir)
+    $transactionsOutput = $output;
+    if (strpos($output, '=== CSV IMPORT PREVIEW ===') !== false) {
+        $lines = explode("\n", $output);
+        $start = 0;
+        foreach ($lines as $i => $line) {
+            if (strpos($line, '========================================') !== false) {
+                $start = $i + 1;
+                break;
+            }
+        }
+        $transactionsOutput = implode("\n", array_slice($lines, $start));
+        
+        // Remover nota do modo preview no final
+        $transactionsOutput = preg_replace('/\n=== PREVIEW MODE ===.*/s', '', $transactionsOutput);
+    }
+    
+    // 4. Limpar o output das transaÃ§Ãµes
+    $transactionsOutput = trim($transactionsOutput);
+    
+    // Se nÃ£o hÃ¡ transaÃ§Ãµes para importar, retornar
+    if (empty($transactionsOutput)) {
+        return "No transactions were imported from CSV.";
+    }
+    
+    // 5. PROCESSAMENTO CRÃTICO: Garantir formataÃ§Ã£o correta das transaÃ§Ãµes
+    // Cada transaÃ§Ã£o deve terminar com \n\n (duas quebras de linha)
+    // O arquivo final deve terminar com \n\n\n (trÃªs quebras de linha)
+    
+    // Dividir por linhas
+    $lines = explode("\n", $transactionsOutput);
+    $formattedLines = [];
+    $inTransaction = false;
+    $transactionLines = [];
+    
+    foreach ($lines as $line) {
+        $trimmedLine = trim($line);
+        
+        // Se Ã© inÃ­cio de nova transaÃ§Ã£o (linha com data YYYY/MM/DD)
+        if (preg_match('/^\d{4}\/\d{2}\/\d{2}\s/', $line)) {
+            // Se jÃ¡ estÃ¡vamos em uma transaÃ§Ã£o, processar a transaÃ§Ã£o anterior
+            if ($inTransaction && !empty($transactionLines)) {
+                // Adicionar transaÃ§Ã£o formatada
+                foreach ($transactionLines as $transLine) {
+                    $formattedLines[] = $transLine;
+                }
+                // Adicionar linha em branco apÃ³s a transaÃ§Ã£o (\n\n)
+                $formattedLines[] = '';
+                $transactionLines = [];
+            }
+            
+            // Iniciar nova transaÃ§Ã£o
+            $inTransaction = true;
+            $transactionLines[] = $line;
+        }
+        // Se Ã© linha dentro de uma transaÃ§Ã£o (comentÃ¡rio ou conta)
+        elseif ($inTransaction) {
+            // Linha vazia dentro de transaÃ§Ã£o - ignorar (nÃ£o deve ter)
+            if ($trimmedLine === '') {
+                continue;
+            }
+            $transactionLines[] = $line;
+        }
+        // Linha fora de transaÃ§Ã£o (nÃ£o deveria acontecer)
+        else {
+            $formattedLines[] = $line;
+        }
+    }
+    
+    // Processar Ãºltima transaÃ§Ã£o
+    if ($inTransaction && !empty($transactionLines)) {
+        foreach ($transactionLines as $transLine) {
+            $formattedLines[] = $transLine;
+        }
+        // Adicionar linha em branco apÃ³s a Ãºltima transaÃ§Ã£o (\n\n)
+        $formattedLines[] = '';
+    }
+    
+    // Remover Ãºltima linha em branco se for a Ãºnica (serÃ¡ adicionada depois)
+    if (end($formattedLines) === '' && count($formattedLines) > 1) {
+        array_pop($formattedLines);
+    }
+    
+    // Reconstruir transactionsOutput formatado
+    $transactionsOutput = implode("\n", $formattedLines);
+    
+    // 6. PREPARAR CONTEÃDO FINAL DO ARQUIVO
+    
+    // Se o arquivo original tem conteÃºdo
+    if (!empty(trim($content))) {
+        // Remover quebras de linha extras no final
+        $content = rtrim($content);
+        
+        // Verificar o final do conteÃºdo atual
+        $contentLength = strlen($content);
+        $lastChars = '';
+        if ($contentLength >= 3) {
+            $lastChars = substr($content, -3);
+        }
+        
+        // Se o conteÃºdo jÃ¡ termina com \n\n\n, manter
+        if ($lastChars === "\n\n\n") {
+            // JÃ¡ estÃ¡ correto, nÃ£o fazer nada
+        }
+        // Se termina com \n\n, adicionar mais um \n
+        elseif (substr($content, -2) === "\n\n") {
+            $content .= "\n";
+        }
+        // Se termina com \n, adicionar mais dois \n
+        elseif (substr($content, -1) === "\n") {
+            $content .= "\n\n";
+        }
+        // Se nÃ£o termina com \n, adicionar trÃªs \n
+        else {
+            $content .= "\n\n\n";
+        }
+    }
+    
+    // 7. ADICIONAR NOVAS TRANSAÃÃES
+    
+    // Se transactionsOutput nÃ£o estÃ¡ vazio
+    if (!empty(trim($transactionsOutput))) {
+        // Se jÃ¡ hÃ¡ conteÃºdo e nÃ£o termina com \n\n, ajustar
+        if (!empty(trim($content)) && substr(rtrim($content), -2) !== "\n\n") {
+            $content = rtrim($content);
+            if (substr($content, -1) === "\n") {
+                $content .= "\n";
+            } else {
+                $content .= "\n\n";
+            }
+        }
+        
+        // Adicionar transaÃ§Ãµes
+        $content .= $transactionsOutput;
+    }
+    
+    // 8. GARANTIR FORMATAÃÃO FINAL DO ARQUIVO
+    
+    // Remover espaÃ§os em branco extras no final
+    $content = rtrim($content);
+    
+    // Garantir que o arquivo termine com \n\n\n (trÃªs quebras de linha)
+    // Isso significa 2 linhas em branco no final
+    $content .= "\n\n\n";
+    
+    // 9. SALVAR ARQUIVO
+    
+    if (file_put_contents($ledgerFile, $content, LOCK_EX) !== false) {
+        // Tentar definir permissÃµes restritivas
+        @chmod($ledgerFile, 0600);
+        
+        // Contar transaÃ§Ãµes importadas
+        $transactionCount = 0;
+        $lines = explode("\n", $transactionsOutput);
+        foreach ($lines as $line) {
+            if (preg_match('/^\d{4}\/\d{2}\/\d{2}\s/', $line)) {
+                $transactionCount++;
+            }
+        }
+        
+        return "Successfully imported {$transactionCount} transactions from CSV!\n" .
+               "Format: Each transaction separated by one blank line (\n\n)\n" .
+               "File ends with two blank lines (\n\n\n)";
+    } else {
+        return "Error: Could not save imported transactions to ledger file.\n\n" .
+               "Generated transactions:\n" . $transactionsOutput;
+    }
+}
+
 function getExistingAccounts($ledgerFile) {
-    // Sanitizar nome do arquivo
+    // Sanitize filename
     $ledgerFile = sanitizeFileName($ledgerFile);
     
     if (!file_exists($ledgerFile)) {
@@ -843,7 +1893,7 @@ function getExistingAccounts($ledgerFile) {
 }
 
 function addTransaction($ledgerFile) {
-    // Sanitizar nome do arquivo
+    // Sanitize filename
     $ledgerFile = sanitizeFileName($ledgerFile);
     
     if (!file_exists($ledgerFile)) {
@@ -963,7 +2013,7 @@ function addTransaction($ledgerFile) {
     
     // Save the complete content
     if (file_put_contents($ledgerFile, $content, LOCK_EX) !== false) {
-        // Tentar definir permissões restritas após salvar
+        // Try to set restrictive permissions after saving
         @chmod($ledgerFile, 0600);
         return "Transaction added successfully! (ID: $shortId)";
     } else {
@@ -972,7 +2022,7 @@ function addTransaction($ledgerFile) {
 }
 
 function deleteLastTransaction($ledgerFile) {
-    // Sanitizar nome do arquivo
+    // Sanitize filename
     $ledgerFile = sanitizeFileName($ledgerFile);
     
     if (!file_exists($ledgerFile)) {
@@ -1070,18 +2120,18 @@ function deleteLastTransaction($ledgerFile) {
     // Rebuild content
     $newContent = implode("\n", $newLines);
     
-    // **CORREÇÃO CRÍTICA:**
-    // 1. Remover todo o whitespace do final
+    // **CRITICAL CORRECTION:**
+    // 1. Remove all trailing whitespace
     $newContent = rtrim($newContent);
     
-    // 2. Se ainda houver conteúdo, adicionar duas quebras de linha
+    // 2. If there's still content, add two line breaks
     if (!empty($newContent)) {
         $newContent .= "\n\n\n";
     }
     
     // Save back
     if (file_put_contents($ledgerFile, $newContent, LOCK_EX) !== false) {
-        // Tentar definir permissões restritas após salvar
+        // Try to set restrictive permissions after saving
         @chmod($ledgerFile, 0600);
         $uuidInfo = $uuid ? " (UUID: " . substr($uuid, 0, 8) . "...)" : "";
         return "Last transaction removed successfully!$uuidInfo";
@@ -1137,9 +2187,10 @@ function e($text) {
             display: flex;
             align-items: center;
             gap: 10px;
+            margin-left: auto; /* This pushes content to the right */
         }
         
-        /* Estilo para o contêiner do cabeçalho do terminal */
+        /* Style for terminal header container */
         .terminal-header-content {
             display: flex;
             width: 100%;
@@ -1184,6 +2235,58 @@ function e($text) {
             display: flex;
             flex-direction: column;
             color: #333;
+        }
+        
+        /* NEW: Styles for tabs */
+        .tab-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            background: #e8e8e8;
+            border-bottom: 1px solid #ccc;
+        }
+        
+        .tab-button {
+            flex: 1;
+            background: #e8e8e8;
+            color: #333;
+            border: none;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-right: 1px solid #bbb;
+        }
+        
+        .tab-button:last-child {
+            border-right: none;
+        }
+        
+        .tab-button:hover {
+            background: #e0e0e0;
+        }
+        
+        .tab-button.active {
+            background: #f9f9f9;
+            color: #0066cc;
+            font-weight: bold;
+            border-bottom: 2px solid #0066cc;
+        }
+        
+        .tab-content {
+            flex: 1;
+            display: none;
+            overflow-y: auto;
+        }
+        
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
         }
         
         /* Terminal styles */
@@ -1244,6 +2347,22 @@ function e($text) {
             background: #c82333;
         }
         
+        .btn-warning {
+            background: #e67e22;
+        }
+        
+        .btn-warning:hover {
+            background: #d35400;
+        }
+        
+        .btn-info {
+            background: #17a2b8;
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
         .current-file {
             color: #0066cc;
             font-size: 12px;
@@ -1267,6 +2386,7 @@ function e($text) {
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: nowrap;
         }
         
         .prompt {
@@ -1311,7 +2431,7 @@ function e($text) {
             border-bottom: 1px solid #e0e0e0;
         }
         
-        /* IMPORTANTE: ESTILO PARA SAÍDA DO TERMINAL COM TAMANHO FIXO E QUEBRA DE LINHA */
+        /* IMPORTANT: STYLE FOR TERMINAL OUTPUT WITH FIXED SIZE AND LINE BREAK */
         .command-result {
             color: #333;
             white-space: pre-wrap;
@@ -1374,7 +2494,10 @@ function e($text) {
         
         .form-group input[type="text"],
         .form-group input[type="date"],
-        .form-group textarea {
+        .form-group textarea,
+        .form-group input[type="number"],
+        .form-group input[type="file"],
+        .form-group select {
             background: #ffffff;
             border: 1px solid #bbb;
             color: #333;
@@ -1386,7 +2509,10 @@ function e($text) {
         
         .form-group input[type="text"]:focus,
         .form-group input[type="date"]:focus,
-        .form-group textarea:focus {
+        .form-group textarea:focus,
+        .form-group input[type="number"]:focus,
+        .form-group input[type="file"]:focus,
+        .form-group select:focus {
             outline: none;
             border-color: #0066cc;
             box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
@@ -1496,21 +2622,24 @@ function e($text) {
         .terminal-body::-webkit-scrollbar,
         .transaction-body::-webkit-scrollbar,
         .entries-container::-webkit-scrollbar,
-        .autocomplete-list::-webkit-scrollbar {
+        .autocomplete-list::-webkit-scrollbar,
+        .tab-content::-webkit-scrollbar {
             width: 8px;
         }
         
         .terminal-body::-webkit-scrollbar-track,
         .transaction-body::-webkit-scrollbar-track,
         .entries-container::-webkit-scrollbar-track,
-        .autocomplete-list::-webkit-scrollbar-track {
+        .autocomplete-list::-webkit-scrollbar-track,
+        .tab-content::-webkit-scrollbar-track {
             background: #f0f0f0;
         }
         
         .terminal-body::-webkit-scrollbar-thumb,
         .transaction-body::-webkit-scrollbar-thumb,
         .entries-container::-webkit-scrollbar-thumb,
-        .autocomplete-list::-webkit-scrollbar-thumb {
+        .autocomplete-list::-webkit-scrollbar-thumb,
+        .tab-content::-webkit-scrollbar-thumb {
             background: #bbb;
             border-radius: 4px;
         }
@@ -1518,7 +2647,8 @@ function e($text) {
         .terminal-body::-webkit-scrollbar-thumb:hover,
         .transaction-body::-webkit-scrollbar-thumb:hover,
         .entries-container::-webkit-scrollbar-thumb:hover,
-        .autocomplete-list::-webkit-scrollbar-thumb:hover {
+        .autocomplete-list::-webkit-scrollbar-thumb:hover,
+        .tab-content::-webkit-scrollbar-thumb:hover {
             background: #999;
         }
         
@@ -1623,6 +2753,11 @@ function e($text) {
                 font-size: 11px;
                 flex-shrink: 0;
             }
+            
+            .tab-button {
+                padding: 8px 5px;
+                font-size: 10px;
+            }
         }
         
         /* Styles specific for mobile devices */
@@ -1659,9 +2794,14 @@ function e($text) {
                 font-size: 11px;
                 flex-shrink: 0;
             }
+            
+            .tab-button {
+                padding: 8px;
+                font-size: 11px;
+            }
         }
         
-        /* Permitir rolagem em dispositivos móveis */
+        /* Allow scrolling on mobile devices */
         @media (max-width: 768px) {
             body {
                 overflow: auto !important;
@@ -1688,86 +2828,19 @@ function e($text) {
             }
         }
         
-        /* Container com largura fixa para o terminal */
+        /* Container with fixed width for terminal */
         .terminal-content {
             max-width: 100%;
             overflow-x: hidden;
         }
         
-        /* Para linhas muito longas com caracteres contínuos */
+        /* For very long lines with continuous characters */
         .break-long-lines {
             overflow-wrap: anywhere !important;
             word-break: break-all !important;
         }
         
-        /* Additional light theme improvements */
-        .terminal-section {
-            box-shadow: inset -1px 0 0 #ddd;
-        }
-        
-        .transaction-section {
-            box-shadow: inset 1px 0 0 #ddd;
-        }
-        
-        .btn-info {
-            background: #17a2b8;
-        }
-        
-        .btn-info:hover {
-            background: #138496;
-        }
-        
-        .btn-secondary {
-            background: #6c757d;
-        }
-        
-        .btn-secondary:hover {
-            background: #5a6268;
-        }
-        
-        .command-line pre {
-            margin: 0;
-            padding: 5px;
-            background: #f8f9fa;
-            border-radius: 3px;
-        }
-        
-        /* Hover effects for buttons */
-        .btn, .remove-entry, .add-entry {
-            transition: all 0.2s ease;
-        }
-        
-        .btn:hover, .remove-entry:hover, .add-entry:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        /* Input focus styles */
-        .form-group input:focus, 
-        .form-group textarea:focus,
-        .entry-row input:focus {
-            border-color: #0066cc;
-            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
-        }
-        
-        /* Status indicators */
-        #totalAmount {
-            font-weight: bold;
-            font-size: 14px;
-        }
-        
-        #balanceStatus {
-            font-weight: bold;
-        }
-        
-        /* File selector styling */
-        select:focus {
-            border-color: #0066cc;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
-        }
-        
-        /* Delete password modal styles */
+        /* Delete password modal styles for light theme */
         #deletePasswordModal {
             position: fixed;
             top: 0;
@@ -1903,6 +2976,210 @@ function e($text) {
             font-style: italic;
             margin-top: 3px;
         }
+        
+        /* NEW: Styles for CSV advanced options */
+        .advanced-options {
+            background: #ffffff;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        
+        .advanced-options h4 {
+            color: #0066cc;
+            margin-bottom: 10px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .advanced-options h4:after {
+            content: 'âŒ';
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .advanced-options.collapsed h4:after {
+            transform: rotate(-90deg);
+        }
+        
+        .advanced-options.collapsed .options-content {
+            display: none;
+        }
+        
+        .options-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .option-group label {
+            color: #0066cc;
+            font-size: 11px;
+        }
+        
+        .option-group input[type="checkbox"] {
+            margin-right: 5px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .checkbox-group label {
+            color: #0066cc;
+            font-size: 11px;
+        }
+        
+        /* NEW: Style for CSV example */
+        .csv-example {
+            background: #ffffff;
+            border: 1px solid #bbb;
+            border-radius: 3px;
+            padding: 10px;
+            margin-top: 15px;
+            font-size: 11px;
+        }
+        
+        .csv-example h4 {
+            color: #0066cc;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+        
+        .csv-example pre {
+            color: #333;
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 3px;
+            overflow-x: auto;
+            font-size: 10px;
+        }
+        
+        .csv-example code {
+            font-family: 'Courier New', monospace;
+        }
+        
+        .preview-indicator {
+            background: #17a2b8;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            margin-left: 5px;
+            font-weight: bold;
+        }
+        
+        /* Additional light theme improvements */
+        .terminal-section {
+            box-shadow: inset -1px 0 0 #ddd;
+        }
+        
+        .transaction-section {
+            box-shadow: inset 1px 0 0 #ddd;
+        }
+        
+        .btn-info {
+            background: #17a2b8;
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .command-line pre {
+            margin: 0;
+            padding: 5px;
+            background: #f8f9fa;
+            border-radius: 3px;
+        }
+        
+        /* Hover effects for buttons */
+        .btn, .remove-entry, .add-entry {
+            transition: all 0.2s ease;
+        }
+        
+        .btn:hover, .remove-entry:hover, .add-entry:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        /* Input focus styles */
+        .form-group input:focus, 
+        .form-group textarea:focus,
+        .entry-row input:focus {
+            border-color: #0066cc;
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
+        }
+        
+        /* Status indicators */
+        #totalAmount {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        #balanceStatus {
+            font-weight: bold;
+        }
+        
+        /* File selector styling */
+        select:focus {
+            border-color: #0066cc;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+        }
+               
+        #csv_date_format, #csv_delimiter {
+            width: 100%;
+            max-width: 200px;
+            box-sizing: border-box;
+        }
+
+        @media (max-width: 768px) {
+            /* Ajuste para dropdowns em dispositivos móveis */
+            #csv_date_format, #csv_delimiter,
+            #csv_scale {
+                max-width: 100%;
+                width: 100%;
+            }
+            
+            /* Força uma coluna em mobile */
+            .options-content {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            
+            /* Garante que grupos ocupem toda largura */
+            .option-group {
+                width: 100%;
+            }
+            
+            /* Ajusta tamanho da fonte para mobile */
+            .option-group select,
+            .option-group input[type="number"] {
+                font-size: 12px;
+                padding: 6px 8px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1985,15 +3262,28 @@ function e($text) {
                         </div>
                     <?php endif; ?>
                     
+                    <?php if (!empty($importResult)): ?>
+                        <div class="command-output <?php echo strpos($importResult, 'Error') === false ? 'success' : 'error'; ?>">
+                            <div class="command-result"><?php echo formatOutput($importResult); ?></div>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <?php if (!empty($previewResult)): ?>
+                        <div class="command-output <?php echo strpos($previewResult, 'Error') === false ? 'success' : 'error'; ?>">
+                            <div class="command-line">CSV Import Preview</div>
+                            <div class="command-result"><?php echo formatOutput($previewResult); ?></div>
+                        </div>
+                    <?php endif; ?>
+                    
                     <?php if (!empty($deleteResult)): ?>
                         <div class="command-output <?php echo strpos($deleteResult, 'Error') === false ? 'success' : 'error'; ?>">
                             <div class="command-result"><?php echo formatOutput($deleteResult); ?></div>
                         </div>
                     <?php endif; ?>
                     
-                    <?php if (empty($commandOutput) && empty($transactionResult) && empty($deleteResult)): ?>
+                    <?php if (empty($commandOutput) && empty($transactionResult) && empty($importResult) && empty($previewResult) && empty($deleteResult)): ?>
                         <div class="welcome-message">
-                            Ledger CLI Terminal<br>
+                            Ledger CLI Terminal v1.1<br>
                             Current file: <?php echo e($currentFile); ?>
                             <?php if (substr($currentFile, 0, 1) === '.'): ?>
                                 <span style="color: #ff8c00;"> (hidden file)</span>
@@ -2003,6 +3293,9 @@ function e($text) {
                                 <span style="color: #0066cc;">Mobile mode active (--columns=56, smaller font)</span><br>
                             <?php endif; ?>
                             Type '--help' to see available commands<br>
+                            <span style="color: #dc3545; font-size: 12px;">
+                                Security: -f flag, file paths, pipes (<, >, |) and path traversal (..) are blocked
+                            </span>
                         </div>
                     <?php endif; ?>
                 </div>
@@ -2014,84 +3307,194 @@ function e($text) {
                            autocomplete="off" 
                            autofocus
                            value="<?php echo isset($_POST['command']) ? e($_POST['command']) : ''; ?>">
-                    <!-- BOTÃO EXECUTE MESMA LINHA NO MOBILE E DESKTOP -->
+                    <!-- EXECUTE BUTTON SAME LINE ON MOBILE AND DESKTOP -->
                     <button type="button" id="executeButton" class="btn">Execute</button>
                 </div>
             </div>
         </div>
         
-        <!-- Transactions Section (40%) -->
+        <!-- Transactions Section (40%) - NOW WITH TABS -->
         <div class="transaction-section">
-            <div class="transaction-header">
-                <h3>Add New Transaction</h3>
-            </div>
-            
-            <div class="transaction-body">
-                <form class="transaction-form" id="transactionForm">
-                    <div class="form-group">
-                        <label for="transaction_date">Date:</label>
-                        <input type="date" id="transaction_date" 
-                               value="<?php echo date('Y-m-d'); ?>" 
-                               required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="transaction_payee">Payee/Description:</label>
-                        <input type="text" id="transaction_payee" 
-                               placeholder="Who/where was the transaction" 
-                               required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="transaction_comment">Comment (optional):</label>
-                        <textarea id="transaction_comment" 
-                                  rows="2" 
-                                  placeholder="Transaction comment"></textarea>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Entries (Accounts and Values):</label>
-                        <div class="entries-container" id="entriesContainer">
-                            <?php for ($i = 0; $i < 3; $i++): ?>
-                                <div class="entry-row">
-                                    <div class="autocomplete-container" style="flex: 1;">
-                                        <input type="text" 
-                                               class="account-input" 
-                                               placeholder="Account name"
-                                               data-index="<?php echo $i; ?>"
-                                               autocomplete="off">
-                                        <div class="autocomplete-list" id="autocomplete-<?php echo $i; ?>"></div>
-                                    </div>
-                                    <input type="number" 
-                                           class="amount-input"
-                                           step="0.01" 
-                                           placeholder="Value">
-                                    <?php if ($i >= 2): ?>
-                                        <button type="button" class="remove-entry" onclick="removeEntry(this)">&times;</button>
-                                    <?php endif; ?>
+            <div class="tab-container">
+                <div class="tab-buttons">
+                    <button class="tab-button active" data-tab="add-transaction">Add Transaction</button>
+                    <button class="tab-button" data-tab="import-csv">Import CSV</button>
+                </div>
+                
+                <!-- Tab 1: Add Transaction (original) -->
+                <div class="tab-content active" id="add-transaction">    
+                    <div class="transaction-body">
+                        <form class="transaction-form" id="transactionForm">
+                            <div class="form-group">
+                                <label for="transaction_date">Date:</label>
+                                <input type="date" id="transaction_date" 
+                                       value="<?php echo date('Y-m-d'); ?>" 
+                                       required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="transaction_payee">Payee/Description:</label>
+                                <input type="text" id="transaction_payee" 
+                                       placeholder="Who/where was the transaction" 
+                                       required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="transaction_comment">Comment (optional):</label>
+                                <textarea id="transaction_comment" 
+                                          rows="2" 
+                                          placeholder="Transaction comment"></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Entries (Accounts and Values):</label>
+                                <div class="entries-container" id="entriesContainer">
+                                    <?php for ($i = 0; $i < 3; $i++): ?>
+                                        <div class="entry-row">
+                                            <div class="autocomplete-container" style="flex: 1;">
+                                                <input type="text" 
+                                                       class="account-input" 
+                                                       placeholder="Account name"
+                                                       data-index="<?php echo $i; ?>"
+                                                       autocomplete="off">
+                                                <div class="autocomplete-list" id="autocomplete-<?php echo $i; ?>"></div>
+                                            </div>
+                                            <input type="number" 
+                                                   class="amount-input"
+                                                   step="0.01" 
+                                                   placeholder="Value">
+                                            <?php if ($i >= 2): ?>
+                                                <button type="button" class="remove-entry" onclick="removeEntry(this)">&times;</button>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endfor; ?>
                                 </div>
-                            <?php endfor; ?>
-                        </div>
-                        <button type="button" class="add-entry" onclick="addEntry()">+ Add Entry</button>
+                                <button type="button" class="add-entry" onclick="addEntry()">+ Add Entry</button>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Total: <span id="totalAmount">0.00</span></label>
+                                <div id="balanceStatus" style="font-size: 11px; margin-top: 5px;"></div>
+                            </div>
+                        </form>
                     </div>
                     
-                    <div class="form-group">
-                        <label>Total: <span id="totalAmount">0.00</span></label>
-                        <div id="balanceStatus" style="font-size: 11px; margin-top: 5px;"></div>
+                    <div class="transaction-footer">
+                        <button type="button" id="addTransactionButton" class="btn">Add Transaction</button>
+                        <button type="button" id="deleteLastButton" class="btn btn-danger">
+                            Delete Last Transaction
+                        </button>
+                        <?php if (isDeleteLocked()): ?>
+                            <div class="locked-message" id="deleteLockedMessage">
+                                Delete function locked for <?php echo getDeleteLockRemaining(); ?> seconds
+                            </div>
+                        <?php endif; ?>
                     </div>
-                </form>
-            </div>
-            
-            <div class="transaction-footer">
-                <button type="button" id="addTransactionButton" class="btn">Add Transaction</button>
-                <button type="button" id="deleteLastButton" class="btn btn-danger">
-                    Delete Last Transaction
-                </button>
-                <?php if (isDeleteLocked()): ?>
-                    <div class="locked-message" id="deleteLockedMessage">
-                        Delete function locked for <?php echo getDeleteLockRemaining(); ?> seconds
+                </div>
+                
+                <!-- Tab 2: Import CSV (NEW) -->
+                <div class="tab-content" id="import-csv">
+                    <div class="transaction-body">
+                        <form class="transaction-form" id="csvImportForm" enctype="multipart/form-data">
+                            <div class="form-group">
+                                <label for="csv_file">CSV File:</label>
+                                <input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" required>
+                                <small style="color: #0066cc; font-size: 11px;">
+                                    Select a CSV file to import (max 10MB)
+                                </small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="csv_account">Account (destination):</label>
+                                <input type="text" id="csv_account" 
+                                       name="csv_account" 
+                                       placeholder="e.g., Assets:Checking, Paypal"
+                                       required>
+                                <small style="color: #0066cc; font-size: 11px;">
+                                    This account will receive the CSV amounts
+                                </small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="csv_set_search">Set Search:</label>
+                                <input type="text" id="csv_set_search" 
+                                       name="csv_set_search" 
+                                       value="Expenses"
+                                       placeholder="e.g., Expenses, Utilities">
+                                <small style="color: #0066cc; font-size: 11px;">
+                                    Used for Bayesian classification of payees
+                                </small>
+                            </div>
+                            
+                            <!-- Advanced options -->
+                            <div class="advanced-options" id="advancedOptions">
+                                <h4 onclick="toggleAdvancedOptions()">Advanced Options</h4>
+                                <div class="options-content">
+                                    <div class="option-group">
+                                        <label for="csv_scale">Scale Factor:</label>
+                                        <input type="number" id="csv_scale" name="csv_scale" 
+                                               step="0.01" value="1.00" min="0.01">
+                                    </div>
+                                    
+                                    <div class="option-group">
+                                        <label for="csv_date_format">Date Format:</label>
+                                        <select id="csv_date_format" name="csv_date_format">
+                                            <option value="m/d/Y">m/d/Y (US)</option>
+                                            <option value="d/m/Y">d/m/Y (EU)</option>
+                                            <option value="Y-m-d">Y-m-d (ISO)</option>
+                                            <option value="Y/m/d">Y/m/d (Ledger)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="option-group">
+                                        <label for="csv_delimiter">Delimiter:</label>
+                                        <select id="csv_delimiter" name="csv_delimiter">
+                                            <option value=",">Comma (,)</option>
+                                            <option value=";">Semicolon (;)</option>
+                                            <option value="\t">Tab</option>
+                                            <option value="|">Pipe (|)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="csv_neg" name="csv_neg" value="1">
+                                        <label for="csv_neg">Negate Amounts</label>
+                                    </div>
+                                    
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="csv_allow_matching" name="csv_allow_matching" value="1">
+                                        <label for="csv_allow_matching">Allow Matching</label>
+                                    </div>
+                                    
+                                    <div class="checkbox-group">
+                                        <input type="checkbox" id="csv_wide" name="csv_wide" value="1">
+                                        <label for="csv_wide">Wide Mode (132 cols)</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- CSV Example -->
+                            <div class="csv-example">
+                                <h4>CSV Format Example:</h4>
+                                <pre><code>Date,Description,Amount
+2023-11-15,Supermarket purchase,-85.90
+2023-11-16,Salary deposit,2500.00
+2023-11-17,Uber ride,-32.50</code></pre>
+                                <small style="color: #0066cc;">
+                                    Required columns: Date, Payee/Description, Amount<br>
+                                    Optional columns: Note, UUID
+                                </small>
+                            </div>
+                        </form>
                     </div>
-                <?php endif; ?>
+                    
+                    <div class="transaction-footer">
+                        <button type="button" id="previewCsvButton" class="btn btn-info">
+                            Preview CSV
+                        </button>
+                        <button type="button" id="importCsvButton" class="btn btn-warning">Import CSV</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2133,6 +3536,8 @@ function e($text) {
             document.getElementById('fileSelector').addEventListener('change', changeFile);
             document.getElementById('addTransactionButton').addEventListener('click', addTransaction);
             document.getElementById('deleteLastButton').addEventListener('click', deleteLastTransaction);
+            document.getElementById('importCsvButton').addEventListener('click', importCSV);
+            document.getElementById('previewCsvButton').addEventListener('click', previewCSV);
             
             // Delete modal events
             document.getElementById('cancelDeleteBtn').addEventListener('click', cancelDelete);
@@ -2144,6 +3549,14 @@ function e($text) {
             // Close modal when clicking outside
             document.getElementById('deletePasswordModal').addEventListener('click', function(e) {
                 if (e.target === this) cancelDelete();
+            });
+            
+            // Tab switching
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', function() {
+                    const tabId = this.dataset.tab;
+                    switchTab(tabId);
+                });
             });
             
             // Update delete lock timer if locked
@@ -2161,6 +3574,13 @@ function e($text) {
                         terminalOutput.scrollTop = 0;
                     }
                 }
+                // Ctrl+T to switch tabs
+                if (e.ctrlKey && e.key === 't') {
+                    e.preventDefault();
+                    const activeTab = document.querySelector('.tab-button.active').dataset.tab;
+                    const newTab = activeTab === 'add-transaction' ? 'import-csv' : 'add-transaction';
+                    switchTab(newTab);
+                }
             });
             
             // Show mobile indicator for 3 seconds (for debug)
@@ -2172,11 +3592,155 @@ function e($text) {
             }, 3000);
         });
         
+        function switchTab(tabId) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.toggle('active', button.dataset.tab === tabId);
+            });
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.toggle('active', content.id === tabId);
+            });
+            
+            // If switching to CSV tab, pre-fill account field with existing accounts if available
+            if (tabId === 'import-csv' && existingAccounts.length > 0) {
+                const csvAccountInput = document.getElementById('csv_account');
+                if (csvAccountInput && !csvAccountInput.value) {
+                    // Suggest common account patterns
+                    const commonAccounts = existingAccounts.filter(acc => 
+                        acc.includes('Assets') || acc.includes('Checking') || acc.includes('Paypal')
+                    );
+                    if (commonAccounts.length > 0) {
+                        csvAccountInput.placeholder = 'e.g., ' + commonAccounts[0];
+                    }
+                }
+            }
+        }
+        
+        function toggleAdvancedOptions() {
+            const advancedOptions = document.getElementById('advancedOptions');
+            advancedOptions.classList.toggle('collapsed');
+        }
+        
+        function previewCSV() {
+            const csvFileInput = document.getElementById('csv_file');
+            const csvAccount = document.getElementById('csv_account').value.trim();
+            const csvSetSearch = document.getElementById('csv_set_search').value.trim();
+            
+            // Validations
+            if (!csvFileInput.files || csvFileInput.files.length === 0) {
+                showTransactionMessage('Please select a CSV file.', 'error');
+                return;
+            }
+            
+            if (!csvAccount) {
+                showTransactionMessage('Account is required for CSV import.', 'error');
+                return;
+            }
+            
+            if (!csvSetSearch) {
+                showTransactionMessage('Set Search is required for classification.', 'error');
+                return;
+            }
+            
+            // Create FormData - CORREÃÃO: Enviar '1' para checked e '' para nÃ£o checked
+            const formData = new FormData();
+            formData.append('ajax_preview_csv', '1');
+            formData.append('ajax_file', currentFile);
+            formData.append('csv_file', csvFileInput.files[0]);
+            formData.append('csv_account', csvAccount);
+            formData.append('csv_set_search', csvSetSearch);
+            
+            // CORREÃÃO CRÃTICA: Enviar checkboxes como '1' ou 'on' quando marcados
+            formData.append('csv_neg', document.getElementById('csv_neg').checked ? '1' : '');
+            formData.append('csv_allow_matching', document.getElementById('csv_allow_matching').checked ? '1' : '');
+            formData.append('csv_wide', document.getElementById('csv_wide').checked ? '1' : '');
+            
+            formData.append('csv_scale', document.getElementById('csv_scale').value);
+            formData.append('csv_date_format', document.getElementById('csv_date_format').value);
+            formData.append('csv_delimiter', document.getElementById('csv_delimiter').value);
+            
+            // Debug no console
+            console.log('Preview CSV - csv_neg checked:', document.getElementById('csv_neg').checked);
+            console.log('Preview CSV - csv_allow_matching checked:', document.getElementById('csv_allow_matching').checked);
+            console.log('Preview CSV - csv_wide checked:', document.getElementById('csv_wide').checked);
+            
+            // Show loading
+            const terminalOutput = document.getElementById('terminalOutput');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'command-output';
+            loadingDiv.innerHTML = '<div class="command-result">Generating CSV preview...</div>';
+            terminalOutput.appendChild(loadingDiv);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            
+            // Send via AJAX
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '', true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            
+            xhr.onload = function() {
+                // Remove loading
+                loadingDiv.remove();
+                
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        
+                        // Show message in terminal
+                        if (response.success) {
+                            const previewDiv = document.createElement('div');
+                            previewDiv.className = 'command-output';
+                            
+                            const commandLine = document.createElement('div');
+                            commandLine.className = 'command-line';
+                            commandLine.textContent = 'CSV Import Preview';
+                            
+                            const resultDiv = document.createElement('div');
+                            resultDiv.className = 'command-result';
+                            resultDiv.textContent = response.message;
+                            
+                            previewDiv.appendChild(commandLine);
+                            previewDiv.appendChild(resultDiv);
+                            terminalOutput.appendChild(previewDiv);
+                        } else {
+                            showTransactionMessageInTerminal(response.error || 'Preview failed', 'error');
+                        }
+                    } catch (e) {
+                        showTransactionMessageInTerminal('Error processing response', 'error');
+                    }
+                } else {
+                    showTransactionMessageInTerminal('Error communicating with server', 'error');
+                }
+                
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            };
+            
+            xhr.onerror = function() {
+                loadingDiv.remove();
+                showTransactionMessageInTerminal('Connection error', 'error');
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            };
+            
+            xhr.send(formData);
+        }
+        
         function executeCommand() {
             const commandInput = document.getElementById('commandInput');
             const command = commandInput.value.trim();
             
             if (!command) return;
+            
+            // Validate command for security
+            if (command.includes('>') || command.includes('<') || command.includes('|')) {
+                showError('Error: Dangerous characters (<, >, |) are not allowed in commands.');
+                return;
+            }
+            
+            if (command.match(/(?:^|\s)-f\b/)) {
+                showError('Error: The -f flag is not allowed. You can only use the current journal file.');
+                return;
+            }
             
             // Show loading
             const terminalOutput = document.getElementById('terminalOutput');
@@ -2291,7 +3855,7 @@ function e($text) {
                             // Update welcome message
                             const terminalOutput = document.getElementById('terminalOutput');
                             terminalOutput.innerHTML = '<div class="welcome-message">' +
-                                'Ledger CLI Terminal<br>' +
+                                'Ledger CLI Terminal v1.1<br>' +
                                 'Current file: ' + currentFile + 
                                 (currentFile.startsWith('.') ? ' <span style="color: #ff8c00;">(hidden file)</span>' : '') +
                                 '<br>' +
@@ -2360,9 +3924,9 @@ function e($text) {
                 }
             }
             
-            // CORREÇÃO: Enviar data no formato correto (YYYY-MM-DD)
-            // O PHP vai converter para YYYY/MM/DD
-            const formattedDate = dateInput; // Manter formato YYYY-MM-DD
+            // CORRECTION: Send date in correct format (YYYY-MM-DD)
+            // PHP will convert to YYYY/MM/DD
+            const formattedDate = dateInput; // Keep YYYY-MM-DD format
             
             // Send via AJAX
             const xhr = new XMLHttpRequest();
@@ -2422,6 +3986,101 @@ function e($text) {
             }
             
             xhr.send(params.toString());
+        }
+        
+        function importCSV() {
+            const csvFileInput = document.getElementById('csv_file');
+            const csvAccount = document.getElementById('csv_account').value.trim();
+            const csvSetSearch = document.getElementById('csv_set_search').value.trim();
+            
+            // Validations
+            if (!csvFileInput.files || csvFileInput.files.length === 0) {
+                showTransactionMessage('Please select a CSV file.', 'error');
+                return;
+            }
+            
+            if (!csvAccount) {
+                showTransactionMessage('Account is required for CSV import.', 'error');
+                return;
+            }
+            
+            if (!csvSetSearch) {
+                showTransactionMessage('Set Search is required for classification.', 'error');
+                return;
+            }
+            
+            // Create FormData - CORREÃÃO: Enviar '1' para checked e '' para nÃ£o checked
+            const formData = new FormData();
+            formData.append('ajax_import_csv', '1');
+            formData.append('ajax_file', currentFile);
+            formData.append('csv_file', csvFileInput.files[0]);
+            formData.append('csv_account', csvAccount);
+            formData.append('csv_set_search', csvSetSearch);
+            
+            // CORREÃÃO CRÃTICA: Enviar checkboxes como '1' ou 'on' quando marcados
+            formData.append('csv_neg', document.getElementById('csv_neg').checked ? '1' : '');
+            formData.append('csv_allow_matching', document.getElementById('csv_allow_matching').checked ? '1' : '');
+            formData.append('csv_wide', document.getElementById('csv_wide').checked ? '1' : '');
+            
+            formData.append('csv_scale', document.getElementById('csv_scale').value);
+            formData.append('csv_date_format', document.getElementById('csv_date_format').value);
+            formData.append('csv_delimiter', document.getElementById('csv_delimiter').value);
+            
+            // Debug no console
+            console.log('Import CSV - csv_neg checked:', document.getElementById('csv_neg').checked);
+            console.log('Import CSV - csv_allow_matching checked:', document.getElementById('csv_allow_matching').checked);
+            console.log('Import CSV - csv_wide checked:', document.getElementById('csv_wide').checked);
+            
+            // Show loading
+            const terminalOutput = document.getElementById('terminalOutput');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'command-output';
+            loadingDiv.innerHTML = '<div class="command-result">Importing CSV file...</div>';
+            terminalOutput.appendChild(loadingDiv);
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            
+            // Send via AJAX
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '', true);
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            
+            xhr.onload = function() {
+                // Remove loading
+                loadingDiv.remove();
+                
+                if (xhr.status === 200) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        
+                        // Show message in terminal
+                        showTransactionMessageInTerminal(response.message, response.success ? 'success' : 'error');
+                        
+                        if (response.success) {
+                            // Clear file input
+                            csvFileInput.value = '';
+                            document.getElementById('csv_account').value = '';
+                            
+                            // Update accounts for autocomplete
+                            existingAccounts = response.accounts;
+                            setupAutocomplete();
+                        }
+                    } catch (e) {
+                        showTransactionMessageInTerminal('Error processing response', 'error');
+                    }
+                } else {
+                    showTransactionMessageInTerminal('Error communicating with server', 'error');
+                }
+                
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            };
+            
+            xhr.onerror = function() {
+                loadingDiv.remove();
+                showTransactionMessageInTerminal('Connection error', 'error');
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            };
+            
+            xhr.send(formData);
         }
         
         function deleteLastTransaction() {
@@ -2687,6 +4346,11 @@ function e($text) {
             terminalOutput.scrollTop = terminalOutput.scrollHeight;
         }
         
+        function showTransactionMessage(message, type) {
+            // This is for inline messages in the transaction form
+            alert(message);
+        }
+        
         function setupAutocomplete() {
             const accountInputs = document.querySelectorAll('.account-input');
             
@@ -2830,6 +4494,12 @@ function e($text) {
         document.querySelectorAll('.amount-input').forEach(input => {
             input.addEventListener('input', calculateTotal);
         });
+        
+        // Helper function for string contains
+        function strpos(haystack, needle, offset) {
+            var i = (haystack + '').indexOf(needle, (offset || 0));
+            return i === -1 ? false : i;
+        }
     </script>
 </body>
 </html>
