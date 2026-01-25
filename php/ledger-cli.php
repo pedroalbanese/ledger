@@ -286,274 +286,105 @@ class LedgerCLI
             return strcmp($a->name, $b->name);
         });
         
-        // Map for display account balances (considering depth)
-        $displayMap = [];
-        // Map for root account totals
-        $rootTotals = [];
-        // Map for totals of all accounts in the hierarchy
-        $allTotals = [];
+        // Build complete hierarchy
+        $allAccounts = [];
         
         foreach ($balances as $account) {
             $accountName = $account->name;
             $parts = explode(':', $accountName);
             
-            // Add to total of all accounts in hierarchy
-            // Example: for Assets:Funds:Bank, we add to:
-            // - Assets
-            // - Assets:Funds
-            // - Assets:Funds:Bank
-            $currentPath = '';
-            foreach ($parts as $i => $part) {
-                $currentPath .= ($currentPath ? ':' : '') . $part;
-                if (!isset($allTotals[$currentPath])) {
-                    $allTotals[$currentPath] = SimpleRational::zero();
+            // Add leaf account
+            if (!isset($allAccounts[$accountName])) {
+                $allAccounts[$accountName] = SimpleRational::zero();
+            }
+            $allAccounts[$accountName] = $allAccounts[$accountName]->plus($account->balance);
+        }
+        
+        // Apply depth and consolidate
+        $displayAccounts = [];
+        
+        foreach ($allAccounts as $accountName => $balance) {
+            $parts = explode(':', $accountName);
+            $depth = count($parts);
+            
+            if ($maxDepth < 0 || $depth <= $maxDepth) {
+                // Show this account
+                $displayName = $accountName;
+                
+                if (!isset($displayAccounts[$displayName])) {
+                    $displayAccounts[$displayName] = SimpleRational::zero();
                 }
-                $allTotals[$currentPath] = $allTotals[$currentPath]->plus($account->balance);
-            }
-            
-            // Add to root account total
-            $rootAccount = $parts[0];
-            if (!isset($rootTotals[$rootAccount])) {
-                $rootTotals[$rootAccount] = SimpleRational::zero();
-            }
-            $rootTotals[$rootAccount] = $rootTotals[$rootAccount]->plus($account->balance);
-            
-            // Determine which account to show based on depth
-            if ($maxDepth < 0 || count($parts) <= $maxDepth) {
-                $displayAccount = $accountName;
+                $displayAccounts[$displayName] = $displayAccounts[$displayName]->plus($balance);
             } else {
-                $displayAccount = implode(':', array_slice($parts, 0, $maxDepth));
+                // Consolidate to parent at maxDepth
+                $displayName = implode(':', array_slice($parts, 0, $maxDepth));
+                
+                if (!isset($displayAccounts[$displayName])) {
+                    $displayAccounts[$displayName] = SimpleRational::zero();
+                }
+                $displayAccounts[$displayName] = $displayAccounts[$displayName]->plus($balance);
             }
-            
-            if (!isset($displayMap[$displayAccount])) {
-                $displayMap[$displayAccount] = SimpleRational::zero();
+        }
+        
+        // Always include root accounts of displayed accounts
+        $rootsToAdd = [];
+        foreach (array_keys($displayAccounts) as $accountName) {
+            $parts = explode(':', $accountName);
+            if (count($parts) > 1) {
+                $root = $parts[0];
+                if (!isset($displayAccounts[$root])) {
+                    $rootsToAdd[$root] = true;
+                }
             }
-            $displayMap[$displayAccount] = $displayMap[$displayAccount]->plus($account->balance);
+        }
+        
+        // Calculate root balances
+        foreach ($rootsToAdd as $root => $_) {
+            $rootBalance = SimpleRational::zero();
+            foreach ($displayAccounts as $accountName => $balance) {
+                $parts = explode(':', $accountName);
+                if ($parts[0] === $root) {
+                    $rootBalance = $rootBalance->plus($balance);
+                }
+            }
+            $displayAccounts[$root] = $rootBalance;
         }
         
         // Filter zero balance accounts if --empty is not enabled
-        $filteredDisplayMap = [];
-        foreach ($displayMap as $accountName => $balance) {
+        $filtered = [];
+        foreach ($displayAccounts as $accountName => $balance) {
             if ($showEmpty || $balance->sign() != 0) {
-                $filteredDisplayMap[$accountName] = $balance;
+                $filtered[] = [
+                    'name' => $accountName,
+                    'balance' => $balance,
+                    'parts' => explode(':', $accountName),
+                    'depth' => count(explode(':', $accountName))
+                ];
             }
         }
         
-        // Filter zero balance root accounts
-        $filteredRootTotals = [];
-        foreach ($rootTotals as $rootAccount => $total) {
-            if ($showEmpty || $total->sign() != 0) {
-                $filteredRootTotals[$rootAccount] = $total;
-            }
-        }
-        
-        // Filter all zero balance accounts
-        $filteredAllTotals = [];
-        foreach ($allTotals as $accountName => $total) {
-            if ($showEmpty || $total->sign() != 0) {
-                $filteredAllTotals[$accountName] = $total;
-            }
-        }
-        
-        // Prepare final list for display
-        $outputList = [];
-        
-        // For each root account that has value
-        ksort($filteredRootTotals);
-        foreach ($filteredRootTotals as $rootAccount => $rootTotal) {
-            // Add root account
-            $outputList[] = ['name' => $rootAccount, 'balance' => $rootTotal, 'is_root' => true];
-            
-            // Find all subaccounts of this root that should be shown
-            // This includes intermediate and leaf accounts
-            $subaccounts = [];
-            foreach ($filteredAllTotals as $accountName => $balance) {
-                // Check if it's a subaccount of this root (starts with root + :)
-                if (strpos($accountName, $rootAccount . ':') === 0) {
-                    // And it's not the root account itself
-                    if ($accountName !== $rootAccount) {
-                        $subaccounts[] = ['name' => $accountName, 'balance' => $balance];
-                    }
+        // Sort hierarchically
+        usort($filtered, function ($a, $b) {
+            // Compare each part of the hierarchy
+            for ($i = 0; $i < min(count($a['parts']), count($b['parts'])); $i++) {
+                $cmp = strcmp($a['parts'][$i], $b['parts'][$i]);
+                if ($cmp !== 0) {
+                    return $cmp;
                 }
             }
             
-            // Sort subaccounts: first by depth, then by full name
-            // BUT maintaining the original ledger order that groups all subaccounts of an account
-            // before moving to the next account at the same level
-            usort($subaccounts, function ($a, $b) {
-                $aParts = explode(':', $a['name']);
-                $bParts = explode(':', $b['name']);
-                
-                // Compare depth
-                $aDepth = count($aParts);
-                $bDepth = count($bParts);
-                if ($aDepth !== $bDepth) {
-                    return $aDepth - $bDepth;
-                }
-                
-                // For same depth, maintain original ledger order:
-                // Show all subaccounts of an account before moving to the next
-                for ($i = 0; $i < min($aDepth, $bDepth); $i++) {
-                    if ($aParts[$i] !== $bParts[$i]) {
-                        return strcmp($aParts[$i], $bParts[$i]);
-                    }
-                }
-                
-                return 0;
-            });
-            
-            // Add subaccounts in hierarchical order
-            foreach ($subaccounts as $subaccount) {
-                $outputList[] = ['name' => $subaccount['name'], 'balance' => $subaccount['balance'], 'is_root' => false];
-            }
-        }
-        
-        // Add any account that is not a subaccount of a listed root
-        foreach ($filteredDisplayMap as $displayAccount => $displayBalance) {
-            $alreadyAdded = false;
-            foreach ($outputList as $item) {
-                if ($item['name'] === $displayAccount) {
-                    $alreadyAdded = true;
-                    break;
-                }
-            }
-            
-            if (!$alreadyAdded) {
-                // Check if it's a root account
-                $parts = explode(':', $displayAccount);
-                if (count($parts) === 1) {
-                    // It's a root account, add
-                    $outputList[] = ['name' => $displayAccount, 'balance' => $displayBalance, 'is_root' => true];
-                } else {
-                    // It's a subaccount, but the root has no balance (or was filtered)
-                    // Check if the root is in the list
-                    $rootAccount = $parts[0];
-                    $rootInList = false;
-                    foreach ($outputList as $item) {
-                        if ($item['name'] === $rootAccount) {
-                            $rootInList = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!$rootInList) {
-                        // The root is not in the list, add the subaccount directly
-                        $outputList[] = ['name' => $displayAccount, 'balance' => $displayBalance, 'is_root' => false];
-                    }
-                }
-            }
-        }
-        
-        // Remove duplicates - ensure we show all important accounts
-        $uniqueOutput = [];
-        $processedAccounts = [];
-        
-        // First, ensure root accounts are kept
-        foreach ($outputList as $item) {
-            if ($item['is_root']) {
-                $uniqueOutput[] = $item;
-                $processedAccounts[$item['name']] = true;
-            }
-        }
-        
-        // For non-root accounts, apply logic to determine which to show
-        $nonRootAccounts = [];
-        foreach ($outputList as $item) {
-            if (!$item['is_root']) {
-                $nonRootAccounts[] = $item;
-            }
-        }
-        
-        // Sort non-root accounts maintaining correct order:
-        // 1. Group by "parent path" (all parents up to root)
-        // 2. Within same parent, show in alphabetical order
-        // 3. Show all subaccounts of a parent before moving to next parent
-        usort($nonRootAccounts, function ($a, $b) {
-            $aParts = explode(':', $a['name']);
-            $bParts = explode(':', $b['name']);
-            
-            // Compare the complete hierarchy
-            for ($i = 0; $i < min(count($aParts), count($bParts)); $i++) {
-                if ($aParts[$i] !== $bParts[$i]) {
-                    return strcmp($aParts[$i], $bParts[$i]);
-                }
-            }
-            
-            // If one is parent of the other, the shorter comes first
-            return count($aParts) - count($bParts);
+            // If one is parent of the other, parent comes first
+            return count($a['parts']) - count($b['parts']);
         });
         
-        // Add non-root accounts in correct order
-        foreach ($nonRootAccounts as $item) {
-            $accountName = $item['name'];
-            $parts = explode(':', $accountName);
-            
-            // Check if we already have a parent of this account in the list
-            $shouldShow = true;
-            for ($i = 1; $i < count($parts); $i++) {
-                $parent = implode(':', array_slice($parts, 0, $i));
-                if (isset($processedAccounts[$parent])) {
-                    // We have a parent in the list
-                    if ($maxDepth >= 0 && count($parts) <= $maxDepth) {
-                        // We are showing this depth level
-                        break;
-                    }
-                    
-                    // Check if parent and child have the same value
-                    $parentHasSameValue = false;
-                    foreach ($uniqueOutput as $existing) {
-                        if ($existing['name'] === $parent) {
-                            if ($existing['balance']->equals($item['balance'])) {
-                                $parentHasSameValue = true;
-                            }
-                            break;
-                        }
-                    }
-                    
-                    if ($parentHasSameValue && ($maxDepth < 0 || count($parts) > $maxDepth)) {
-                        $shouldShow = false;
-                    }
-                    break;
-                }
-            }
-            
-            if ($shouldShow && !isset($processedAccounts[$accountName])) {
-                $uniqueOutput[] = $item;
-                $processedAccounts[$accountName] = true;
-            }
-        }
-        
-        // Sort the final list to group by root account and maintain correct hierarchy
-        usort($uniqueOutput, function ($a, $b) {
-            $aParts = explode(':', $a['name']);
-            $bParts = explode(':', $b['name']);
-            $aRoot = $aParts[0];
-            $bRoot = $bParts[0];
-            
-            // First compare roots
-            if ($aRoot !== $bRoot) {
-                return strcmp($aRoot, $bRoot);
-            }
-            
-            // If same root, compare the complete hierarchy
-            for ($i = 0; $i < min(count($aParts), count($bParts)); $i++) {
-                if ($aParts[$i] !== $bParts[$i]) {
-                    return strcmp($aParts[$i], $bParts[$i]);
-                }
-            }
-            
-            // If one is parent of the other, the shorter comes first
-            return count($aParts) - count($bParts);
-        });
-        
-        // Calculate overall total - use ORIGINAL accounts (not consolidated ones)
+        // Calculate overall total
         $overallBalance = SimpleRational::zero();
         foreach ($balances as $account) {
             $overallBalance = $overallBalance->plus($account->balance);
         }
         
-        // Display
-        foreach ($uniqueOutput as $item) {
+        // Display accounts
+        foreach ($filtered as $item) {
             $balanceStr = $item['balance']->toFloat(DISPLAY_PRECISION);
             $spaces = $this->options['columns'] - strlen($item['name']) - strlen($balanceStr);
             if ($spaces < 0) {
@@ -562,7 +393,7 @@ class LedgerCLI
             echo $item['name'] . str_repeat(' ', $spaces) . $balanceStr . "\n";
         }
         
-        if (!empty($uniqueOutput)) {
+        if (!empty($filtered)) {
             echo str_repeat('-', $this->options['columns']) . "\n";
             $balanceStr = $overallBalance->toFloat(DISPLAY_PRECISION);
             $spaces = $this->options['columns'] - strlen($balanceStr);
