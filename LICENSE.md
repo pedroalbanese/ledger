@@ -1,4 +1,4 @@
-Copyright (C) 2025 Pedro F. Albanese pedroalbanese@hotmail.com  
+Copyright (C) 2026 Pedro F. Albanese pedroalbanese@hotmail.com  
 Copyright (C) 2013 Chris Howey chris@howe.me
 
 Permission to use, copy, modify, and distribute this software for any
