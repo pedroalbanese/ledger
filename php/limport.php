@@ -308,7 +308,7 @@ class LimportCLI
         }
         
         $lines = explode("\n", trim($csvContent));
-        $header = str_getcsv(array_shift($lines), $this->options['delimiter']);
+        $header = str_getcsv(array_shift($lines), $this->options['delimiter'], '"', '\\');
         
         $dateColumn = $payeeColumn = $amountColumn = $commentColumn = $uuidColumn = $buyerColumn = -1;
         
@@ -336,7 +336,7 @@ class LimportCLI
         foreach ($lines as $line) {
             if (trim($line) === '') continue;
             
-            $record = str_getcsv($line, $this->options['delimiter']);
+            $record = str_getcsv($line, $this->options['delimiter'], '"', '\\');
             $record = array_pad($record, max($dateColumn, $payeeColumn, $amountColumn, $commentColumn, $uuidColumn, $buyerColumn) + 1, '');
             
             $dateStr = trim($record[$dateColumn]);
@@ -366,13 +366,13 @@ class LimportCLI
             
             $amount *= (float)$this->options['scale'];
             
-            // Logic from Go
-            $csvAmount = -$amount;
-            
+            // CORREÇÃO: Se --neg estiver ativo, inverte o sinal do amount original
             if ($this->options['neg']) {
-                $csvAmount = -$csvAmount;
+                $amount = -$amount;
             }
             
+            // Logic from Go
+            $csvAmount = -$amount;
             $expenseAmount = -$csvAmount;
             
             // Comments - REMOVE extra space after semicolon
@@ -394,18 +394,89 @@ class LimportCLI
     
     private function parseDate(string $dateStr)
     {
+        // Remove espaços extras
+        $dateStr = trim($dateStr);
+        
+        // Se temos um formato específico configurado
         if (!empty($this->options['date-format'])) {
-            $date = \DateTime::createFromFormat($this->options['date-format'], $dateStr);
-            if ($date !== false) return $date;
+            $format = $this->options['date-format'];
+            
+            // Tentar o formato configurado
+            $date = \DateTime::createFromFormat($format, $dateStr);
+            if ($date !== false) {
+                return $date;
+            }
+            
+            // Tentar variantes com diferentes separadores
+            $variants = [
+                str_replace('/', '-', $format),
+                str_replace('-', '/', $format),
+                str_replace('/', '.', $format),
+                str_replace('.', '/', $format),
+            ];
+            
+            foreach ($variants as $variant) {
+                if ($variant !== $format) {
+                    $date = \DateTime::createFromFormat($variant, $dateStr);
+                    if ($date !== false) {
+                        return $date;
+                    }
+                }
+            }
         }
         
-        $formats = ['Y-m-d', 'd/m/Y', 'd-m-Y', 'Y/m/d', 'm/d/Y', 'm-d-Y'];
+        // Lista mais abrangente de formatos (em ordem de prioridade para Brasil)
+        $formats = [
+            // Formatos brasileiros primeiro
+            'd/m/Y',      // 31/12/2023
+            'd-m-Y',      // 31-12-2023  
+            'd.m.Y',      // 31.12.2023
+            
+            // Formatos ISO/internacionais
+            'Y-m-d',      // 2023-12-31
+            'Y/m/d',      // 2023/12/31
+            'Y.m.d',      // 2023.12.31
+            
+            // Formatos americanos
+            'm/d/Y',      // 12/31/2023
+            'm-d-Y',      // 12-31-2023
+            'm.d.Y',      // 12.31.2023
+            
+            // Com barras invertidas
+            'd\\m\\Y',    // 31\12\2023
+            'Y\\m\\d',    // 2023\12\31
+            
+            // Com hora (ignora a hora)
+            'Y-m-d H:i:s',    // 2023-12-31 14:30:00
+            'd/m/Y H:i:s',    // 31/12/2023 14:30:00
+            'm/d/Y H:i:s',    // 12/31/2023 14:30:00
+            'Y-m-d\TH:i:s',   // 2023-12-31T14:30:00 (ISO com T)
+            
+            // Formatos com dia/mês com 1 dígito
+            'j/n/Y',      // 31/12/2023 (sem zero à esquerda)
+            'j-n-Y',      // 31-12-2023
+            'n/j/Y',      // 12/31/2023 (EUA sem zero)
+            
+            // Datas apenas numéricas (auto-detectar)
+            'Ymd',        // 20231231
+            'dmY',        // 31122023
+            'mdy',        // 12312023
+        ];
+        
         foreach ($formats as $format) {
             $date = \DateTime::createFromFormat($format, $dateStr);
-            if ($date !== false) return $date;
+            if ($date !== false) {
+                // Verificar se a data é válida (não é falsa como 31/02/2023)
+                $errors = \DateTime::getLastErrors();
+                // getLastErrors() pode retornar false se não houver erros
+                if ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) {
+                    return $date;
+                }
+            }
         }
         
-        return false;
+        // Se não funcionou com os formatos acima, tentar detecção inteligente
+        return $this->parseDateIntelligent($dateStr);
     }
     
     private function parseAmount(string $amountStr): ?float
