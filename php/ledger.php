@@ -407,7 +407,7 @@ class Ledger
     /**
      * Find the start of a period based on a date (matching original ledger behavior)
      */
-    private static function getPeriodStart(\DateTime $date, string $period): \DateTime
+    private static function getPeriodStart(\DateTime $date, string $period, ?\DateTime $firstTransactionDate = null): \DateTime
     {
         $start = clone $date;
         $start->setTime(0, 0, 0);
@@ -422,15 +422,17 @@ class Ledger
                 break;
                 
             case self::PERIOD_2WEEK:
-                // Find Sunday, then adjust to start of bi-week period
+                // CRITICAL FIX: For BiWeekly, start from the FIRST transaction date
+                // and find the Sunday before it (or on it)
+                if ($firstTransactionDate !== null) {
+                    $start = clone $firstTransactionDate;
+                    $start->setTime(0, 0, 0);
+                }
+                
+                // Find the most recent Sunday
                 $dayOfWeek = (int)$start->format('w');
                 if ($dayOfWeek > 0) {
                     $start->modify("last sunday");
-                }
-                // Calculate week number and adjust to even/odd
-                $weekNumber = (int)$start->format('W');
-                if ($weekNumber % 2 == 0) {
-                    $start->modify('-7 days');
                 }
                 break;
                 
@@ -571,12 +573,12 @@ class Ledger
     /**
      * Generate all period boundaries between two dates
      */
-    private static function generatePeriods(\DateTime $startDate, \DateTime $endDate, string $period): array
+    private static function generatePeriods(\DateTime $startDate, \DateTime $endDate, string $period, ?\DateTime $firstTransactionDate = null): array
     {
         $periods = [];
         
         // Start from the beginning of the period containing the first transaction
-        $currentStart = self::getPeriodStart($startDate, $period);
+        $currentStart = self::getPeriodStart($startDate, $period, $firstTransactionDate);
         
         // Generate periods until we pass the end date
         while ($currentStart <= $endDate) {
@@ -633,8 +635,14 @@ class Ledger
         // Get overall date range
         $dateRange = self::getDateRange($transactions);
         
+        // Get first transaction date for BiWeekly special case
+        $firstTransactionDate = null;
+        if ($period === self::PERIOD_2WEEK && !empty($transactions)) {
+            $firstTransactionDate = $transactions[0]->date;
+        }
+        
         // Generate all periods from before first transaction to after last
-        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period);
+        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period, $firstTransactionDate);
         
         $results = [];
         foreach ($periods as $periodObj) {
@@ -671,8 +679,14 @@ class Ledger
         // Get overall date range
         $dateRange = self::getDateRange($transactions);
         
+        // Get first transaction date for BiWeekly special case
+        $firstTransactionDate = null;
+        if ($period === self::PERIOD_2WEEK && !empty($transactions)) {
+            $firstTransactionDate = $transactions[0]->date;
+        }
+        
         // Generate all periods
-        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period);
+        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period, $firstTransactionDate);
         
         $results = [];
         $runningBalances = [];
