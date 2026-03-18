@@ -366,7 +366,7 @@ class LimportCLI
             
             $amount *= (float)$this->options['scale'];
             
-            // CORREÇÃO: Se --neg estiver ativo, inverte o sinal do amount original
+            // CORRECTION: If --neg is active, invert the sign of the original amount
             if ($this->options['neg']) {
                 $amount = -$amount;
             }
@@ -394,20 +394,20 @@ class LimportCLI
     
     private function parseDate(string $dateStr)
     {
-        // Remove espaços extras
+        // Remove extra spaces
         $dateStr = trim($dateStr);
         
-        // Se temos um formato específico configurado
+        // If we have a specific configured format
         if (!empty($this->options['date-format'])) {
             $format = $this->options['date-format'];
             
-            // Tentar o formato configurado
+            // Try the configured format
             $date = \DateTime::createFromFormat($format, $dateStr);
             if ($date !== false) {
                 return $date;
             }
             
-            // Tentar variantes com diferentes separadores
+            // Try variants with different separators
             $variants = [
                 str_replace('/', '-', $format),
                 str_replace('-', '/', $format),
@@ -425,39 +425,40 @@ class LimportCLI
             }
         }
         
-        // Lista mais abrangente de formatos (em ordem de prioridade para Brasil)
+        // More comprehensive list of formats (in priority order for Brazil)
         $formats = [
-            // Formatos brasileiros primeiro
+            // Brazilian formats first
             'd/m/Y',      // 31/12/2023
             'd-m-Y',      // 31-12-2023  
             'd.m.Y',      // 31.12.2023
             
-            // Formatos ISO/internacionais
+            // ISO/international formats
             'Y-m-d',      // 2023-12-31
             'Y/m/d',      // 2023/12/31
+            'Y.m-d',      // 2023.12.31
             'Y.m.d',      // 2023.12.31
             
-            // Formatos americanos
+            // American formats
             'm/d/Y',      // 12/31/2023
             'm-d-Y',      // 12-31-2023
             'm.d.Y',      // 12.31.2023
             
-            // Com barras invertidas
+            // With backslashes
             'd\\m\\Y',    // 31\12\2023
             'Y\\m\\d',    // 2023\12\31
             
-            // Com hora (ignora a hora)
+            // With time (ignores time)
             'Y-m-d H:i:s',    // 2023-12-31 14:30:00
             'd/m/Y H:i:s',    // 31/12/2023 14:30:00
             'm/d/Y H:i:s',    // 12/31/2023 14:30:00
-            'Y-m-d\TH:i:s',   // 2023-12-31T14:30:00 (ISO com T)
+            'Y-m-d\TH:i:s',   // 2023-12-31T14:30:00 (ISO with T)
             
-            // Formatos com dia/mês com 1 dígito
-            'j/n/Y',      // 31/12/2023 (sem zero à esquerda)
+            // Formats with single-digit day/month
+            'j/n/Y',      // 31/12/2023 (without leading zero)
             'j-n-Y',      // 31-12-2023
-            'n/j/Y',      // 12/31/2023 (EUA sem zero)
+            'n/j/Y',      // 12/31/2023 (US without leading zero)
             
-            // Datas apenas numéricas (auto-detectar)
+            // Purely numeric dates (auto-detect)
             'Ymd',        // 20231231
             'dmY',        // 31122023
             'mdy',        // 12312023
@@ -466,16 +467,16 @@ class LimportCLI
         foreach ($formats as $format) {
             $date = \DateTime::createFromFormat($format, $dateStr);
             if ($date !== false) {
-                // Verificar se a data é válida (não é falsa como 31/02/2023)
+                // Check if the date is valid (not false like 31/02/2023)
                 $errors = \DateTime::getLastErrors();
-                // getLastErrors() pode retornar false se não houver erros
+                // getLastErrors() may return false if there are no errors
                 if ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) {
                     return $date;
                 }
             }
         }
         
-        // Se não funcionou com os formatos acima, tentar detecção inteligente
+        // If it didn't work with the above formats, try intelligent detection
         return $this->parseDateIntelligent($dateStr);
     }
     
