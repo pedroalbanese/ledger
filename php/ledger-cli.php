@@ -693,7 +693,7 @@ class LedgerCLI
         echo "  -f FILE         Ledger file (*required) or '-' for stdin\n";
         echo "  -b DATE         Start date (default: 1970/01/01)\n";
         echo "  -e DATE         End date (default: today)\n";
-        echo "  --period=PERIOD Period (Monthly, Quarterly, SemiYearly, Yearly)\n";
+        echo "  --period=PERIOD Period (Weekly, Monthly, Quarterly, SemiYearly, Yearly)\n";
         echo "  --payee=STR     Filter by payee\n";
         echo "  --empty         Show zero balance accounts\n";
         echo "  --depth=N       Transaction depth\n";
