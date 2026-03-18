@@ -349,12 +349,16 @@ class Parser
 
 class Ledger
 {
+    const PERIOD_WEEK = 'Weekly';
+    const PERIOD_2WEEK = 'BiWeekly';
     const PERIOD_MONTH = 'Monthly';
+    const PERIOD_2MONTH = 'BiMonthly';
     const PERIOD_QUARTER = 'Quarterly';
     const PERIOD_SEMIYEAR = 'SemiYearly';
     const PERIOD_YEAR = 'Yearly';
     
     const RANGE_PARTITION = 'Partition';
+    const RANGE_SNAPSHOT = 'Snapshot';
     
     public static function getBalances(array $transactions, array $filters = []): array
     {
@@ -400,82 +404,325 @@ class Ledger
         return $result;
     }
     
-    // ADICIONADO: Método transactionsByPeriod() necessário para o handleRegister()
-    public static function transactionsByPeriod(array $transactions, string $period): array
+    /**
+     * Find the start of a period based on a date (matching original ledger behavior)
+     */
+    private static function getPeriodStart(\DateTime $date, string $period): \DateTime
     {
-        $grouped = [];
+        $start = clone $date;
+        $start->setTime(0, 0, 0);
         
-        foreach ($transactions as $transaction) {
-            $date = $transaction->date;
-            
-            // Determine period key based on the period type
-            switch ($period) {
-                case self::PERIOD_MONTH:
-                    $key = $date->format('Y-m');
-                    break;
-                case self::PERIOD_QUARTER:
-                    $quarter = ceil($date->format('m') / 3);
-                    $key = $date->format('Y') . '-Q' . $quarter;
-                    break;
-                case self::PERIOD_SEMIYEAR:
-                    $semester = ($date->format('m') <= 6) ? 1 : 2;
-                    $key = $date->format('Y') . '-H' . $semester;
-                    break;
-                case self::PERIOD_YEAR:
-                    $key = $date->format('Y');
-                    break;
-                default:
-                    // Default to monthly
-                    $key = $date->format('Y-m');
-            }
-            
-            if (!isset($grouped[$key])) {
-                $grouped[$key] = [];
-            }
-            
-            $grouped[$key][] = $transaction;
+        switch ($period) {
+            case self::PERIOD_WEEK:
+                // Find the most recent Sunday (including today if it's Sunday)
+                $dayOfWeek = (int)$start->format('w'); // 0 = Sunday, 6 = Saturday
+                if ($dayOfWeek > 0) {
+                    $start->modify("last sunday");
+                }
+                break;
+                
+            case self::PERIOD_2WEEK:
+                // Find Sunday, then adjust to start of bi-week period
+                $dayOfWeek = (int)$start->format('w');
+                if ($dayOfWeek > 0) {
+                    $start->modify("last sunday");
+                }
+                // Calculate week number and adjust to even/odd
+                $weekNumber = (int)$start->format('W');
+                if ($weekNumber % 2 == 0) {
+                    $start->modify('-7 days');
+                }
+                break;
+                
+            case self::PERIOD_MONTH:
+                $start->setDate((int)$start->format('Y'), (int)$start->format('m'), 1);
+                break;
+                
+            case self::PERIOD_2MONTH:
+                $month = (int)$start->format('m');
+                $year = (int)$start->format('Y');
+                
+                // Start of bi-month period (Jan-Feb, Mar-Apr, etc.)
+                if ($month % 2 == 1) {
+                    $startMonth = $month;
+                } else {
+                    $startMonth = $month - 1;
+                }
+                $start->setDate($year, $startMonth, 1);
+                break;
+                
+            case self::PERIOD_QUARTER:
+                $month = (int)$start->format('m');
+                $year = (int)$start->format('Y');
+                
+                if ($month <= 3) {
+                    $start->setDate($year, 1, 1);
+                } elseif ($month <= 6) {
+                    $start->setDate($year, 4, 1);
+                } elseif ($month <= 9) {
+                    $start->setDate($year, 7, 1);
+                } else {
+                    $start->setDate($year, 10, 1);
+                }
+                break;
+                
+            case self::PERIOD_SEMIYEAR:
+                $month = (int)$start->format('m');
+                $year = (int)$start->format('Y');
+                
+                if ($month <= 6) {
+                    $start->setDate($year, 1, 1);
+                } else {
+                    $start->setDate($year, 7, 1);
+                }
+                break;
+                
+            case self::PERIOD_YEAR:
+                $start->setDate((int)$start->format('Y'), 1, 1);
+                break;
         }
         
-        // Convert to range objects
-        $ranges = [];
-        foreach ($grouped as $key => $periodTransactions) {
-            if (empty($periodTransactions)) {
-                continue;
-            }
-            
-            // Sort transactions within period
-            usort($periodTransactions, function($a, $b) {
-                return $a->date <=> $b->date;
-            });
-            
-            $range = new \stdClass();
-            $range->start = clone $periodTransactions[0]->date;
-            $range->end = clone end($periodTransactions)->date;
-            $range->transactions = $periodTransactions;
-            $range->key = $key;
-            
-            $ranges[] = $range;
-        }
-        
-        // Sort ranges chronologically
-        usort($ranges, function($a, $b) {
-            return $a->start <=> $b->start;
-        });
-        
-        return $ranges;
+        return $start;
     }
     
-    // ADICIONADO: Método balancesByPeriod() necessário para o handleBalance()
+    /**
+     * Calculate the end date of a period based on its start
+     */
+    private static function getPeriodEnd(\DateTime $start, string $period): \DateTime
+    {
+        $end = clone $start;
+        
+        switch ($period) {
+            case self::PERIOD_WEEK:
+                $end->modify('+7 days');
+                break;
+            case self::PERIOD_2WEEK:
+                $end->modify('+14 days');
+                break;
+            case self::PERIOD_MONTH:
+                $end->modify('first day of next month');
+                break;
+            case self::PERIOD_2MONTH:
+                $end->modify('+2 months');
+                $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
+                break;
+            case self::PERIOD_QUARTER:
+                $end->modify('+3 months');
+                $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
+                break;
+            case self::PERIOD_SEMIYEAR:
+                $end->modify('+6 months');
+                $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
+                break;
+            case self::PERIOD_YEAR:
+                $end->modify('first day of next year');
+                break;
+        }
+        
+        return $end;
+    }
+    
+    /**
+     * Get the earliest and latest transaction dates
+     */
+    private static function getDateRange(array $transactions): array
+    {
+        if (empty($transactions)) {
+            return ['start' => null, 'end' => null];
+        }
+        
+        $start = $transactions[0]->date;
+        $end = $transactions[0]->date;
+        
+        foreach ($transactions as $transaction) {
+            if ($transaction->date < $start) {
+                $start = $transaction->date;
+            }
+            if ($transaction->date > $end) {
+                $end = $transaction->date;
+            }
+        }
+        
+        return ['start' => $start, 'end' => $end];
+    }
+    
+    /**
+     * Filter transactions within a date range (matching original ledger behavior)
+     */
+    private static function transactionsInDateRange(array $transactions, \DateTime $start, \DateTime $end): array
+    {
+        $result = [];
+        
+        // Original: start.Add(-1 * time.Second) - includes transactions on the start day
+        $startInclusive = clone $start;
+        $startInclusive->modify('-1 second');
+        
+        // Original: tran.Date.After(start) && tran.Date.Before(end)
+        // End is exclusive - transactions on the end day are NOT included
+        foreach ($transactions as $transaction) {
+            if ($transaction->date > $startInclusive && $transaction->date < $end) {
+                $result[] = $transaction;
+            }
+        }
+        
+        return $result;
+    }
+    
+    /**
+     * Generate all period boundaries between two dates
+     */
+    private static function generatePeriods(\DateTime $startDate, \DateTime $endDate, string $period): array
+    {
+        $periods = [];
+        
+        // Start from the beginning of the period containing the first transaction
+        $currentStart = self::getPeriodStart($startDate, $period);
+        
+        // Generate periods until we pass the end date
+        while ($currentStart <= $endDate) {
+            $currentEnd = self::getPeriodEnd($currentStart, $period);
+            
+            $periodObj = new \stdClass();
+            $periodObj->start = clone $currentStart;
+            $periodObj->end = clone $currentEnd;
+            
+            $periods[] = $periodObj;
+            
+            // Move to next period
+            $currentStart = clone $currentEnd;
+        }
+        
+        return $periods;
+    }
+    
+    /**
+     * Format a period key for display
+     */
+    private static function formatPeriodKey(\DateTime $start, string $period): string
+    {
+        switch ($period) {
+            case self::PERIOD_WEEK:
+            case self::PERIOD_2WEEK:
+                return $start->format('Y/m/d');
+            case self::PERIOD_MONTH:
+                return $start->format('Y/m');
+            case self::PERIOD_2MONTH:
+                $month = (int)$start->format('m');
+                $biMonth = ceil($month / 2);
+                return $start->format('Y') . '-BM' . $biMonth;
+            case self::PERIOD_QUARTER:
+                $quarter = ceil((int)$start->format('m') / 3);
+                return $start->format('Y') . '-Q' . $quarter;
+            case self::PERIOD_SEMIYEAR:
+                $semester = ((int)$start->format('m') <= 6) ? 1 : 2;
+                return $start->format('Y') . '-H' . $semester;
+            case self::PERIOD_YEAR:
+                return $start->format('Y');
+            default:
+                return $start->format('Y/m/d');
+        }
+    }
+    
+    // ADDED: transactionsByPeriod() method - Fixed version matching original
+    public static function transactionsByPeriod(array $transactions, string $period): array
+    {
+        if (empty($transactions)) {
+            return [];
+        }
+        
+        // Get overall date range
+        $dateRange = self::getDateRange($transactions);
+        
+        // Generate all periods from before first transaction to after last
+        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period);
+        
+        $results = [];
+        foreach ($periods as $periodObj) {
+            $periodTransactions = self::transactionsInDateRange(
+                $transactions, 
+                $periodObj->start, 
+                $periodObj->end
+            );
+            
+            // Always include the period, even if empty (like original)
+            $range = new \stdClass();
+            $range->start = clone $periodObj->start;
+            
+            // End date should be the last day (inclusive, so subtract 1 day)
+            $range->end = clone $periodObj->end;
+            $range->end->modify('-1 day');
+            
+            $range->transactions = $periodTransactions;
+            $range->key = self::formatPeriodKey($periodObj->start, $period);
+            
+            $results[] = $range;
+        }
+        
+        return $results;
+    }
+    
+    // ADDED: balancesByPeriod() method - Fixed version matching original
     public static function balancesByPeriod(array $transactions, string $period, string $rangeType): array
     {
-        $periods = self::transactionsByPeriod($transactions, $period);
-        $results = [];
+        if (empty($transactions)) {
+            return [];
+        }
         
-        foreach ($periods as $period) {
+        // Get overall date range
+        $dateRange = self::getDateRange($transactions);
+        
+        // Generate all periods
+        $periods = self::generatePeriods($dateRange['start'], $dateRange['end'], $period);
+        
+        $results = [];
+        $runningBalances = [];
+        
+        foreach ($periods as $periodObj) {
+            $periodTransactions = self::transactionsInDateRange(
+                $transactions, 
+                $periodObj->start, 
+                $periodObj->end
+            );
+            
+            // Always include the period, even if empty (like original)
             $range = new \stdClass();
-            $range->start = $period->start;
-            $range->end = $period->end;
-            $range->balances = self::getBalances($period->transactions);
+            $range->start = clone $periodObj->start;
+            
+            // End date should be the last day (inclusive, so subtract 1 day)
+            $range->end = clone $periodObj->end;
+            $range->end->modify('-1 day');
+            
+            if ($rangeType === self::RANGE_SNAPSHOT) {
+                // Snapshot: running total including all previous periods
+                foreach ($periodTransactions as $transaction) {
+                    foreach ($transaction->accountChanges as $change) {
+                        if ($change->balance === null) continue;
+                        
+                        $accountName = $change->name;
+                        if (!isset($runningBalances[$accountName])) {
+                            $runningBalances[$accountName] = SimpleRational::zero();
+                        }
+                        $runningBalances[$accountName] = $runningBalances[$accountName]->plus($change->balance);
+                    }
+                }
+                
+                // Convert to Account objects
+                $balances = [];
+                foreach ($runningBalances as $name => $balance) {
+                    if (!$balance->isZero()) {
+                        $balances[] = new Account($name, $balance);
+                    }
+                }
+                usort($balances, function($a, $b) {
+                    return strcmp($a->name, $b->name);
+                });
+                
+                $range->balances = $balances;
+            } else {
+                // Partition: only transactions in this period
+                $range->balances = self::getBalances($periodTransactions);
+            }
+            
             $results[] = $range;
         }
         
