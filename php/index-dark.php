@@ -1440,23 +1440,23 @@ function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = 
         return "Error: CSV file '$csvFile' not found.";
     }
     
-    // DEBUG: Log das opções
+    // DEBUG: Log options
     error_log("Limport options received: " . print_r($options, true));
     
-    // Construir comando na ORDEM CORRETA
+    // Build command in CORRECT ORDER
     $command = 'php ' . escapeshellarg($limportPath);
     
-    // 1. Primeiro: flag -f obrigatória
+    // 1. First: mandatory -f flag
     $command .= ' -f ' . escapeshellarg($ledgerFile);
     
-    // 2. Depois: --set-search obrigatório
+    // 2. Then: mandatory --set-search
     if (empty($setSearch)) {
         $setSearch = 'Expenses';
     }
     $command .= ' --set-search=' . escapeshellarg($setSearch);
     
-    // 3. Flags booleanas (--neg, --allow-matching, --wide) - CORREÇÃO AQUI
-    // Verificar se a opção existe e é verdadeira, EXATAMENTE como --wide
+    // 3. Boolean flags (--neg, --allow-matching, --wide) - FIX HERE
+    // Check if option exists and is true, EXACTLY like --wide
     if (isset($options['neg']) && $options['neg'] === true) {
         $command .= ' --neg';
         error_log("Adding --neg flag to command");
@@ -1472,7 +1472,7 @@ function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = 
         error_log("Adding --wide flag to command");
     }
     
-    // 4. Opções com valores (apenas se não for padrão)
+    // 4. Options with values (only if not default)
     if (isset($options['scale']) && (float)$options['scale'] != 1.0) {
         $command .= ' --scale=' . escapeshellarg((string)$options['scale']);
     }
@@ -1485,52 +1485,52 @@ function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = 
         $command .= ' --delimiter=' . escapeshellarg($options['delimiter']);
     }
     
-    // 5. Argumentos posicionais DEVEM ser os ÚLTIMOS: <account> <csv-file>
+    // 5. Positional arguments MUST be the LAST: <account> <csv-file>
     $command .= ' ' . escapeshellarg($account);
     $command .= ' ' . escapeshellarg($csvFile);
     
     $command .= ' 2>&1';
     
-    // DEBUG: Log do comando
+    // DEBUG: Log command
     error_log("Limport command: " . $command);
     
-    // Executar
+    // Execute
     $output = [];
     $returnCode = 0;
     exec($command, $output, $returnCode);
     
     $result = implode("\n", $output);
     
-    // DEBUG: Log do resultado
+    // DEBUG: Log result
     error_log("Limport output (first 500 chars): " . substr($result, 0, 500));
     
-    // Se houver erro de "Insufficient arguments", tente abordagem alternativa
+    // If there's an "Insufficient arguments" error, try alternative approach
     if (strpos($result, 'Insufficient arguments') !== false || 
         strpos($result, 'Error:') === 0) {
         
-        // Tentar abordagem alternativa: colocar --set-search como espaço separado
+        // Try alternative approach: put --set-search as space separated
         $altCommand = 'php ' . escapeshellarg($limportPath);
         $altCommand .= ' -f ' . escapeshellarg($ledgerFile);
         
-        // --neg se necessário - CORREÇÃO AQUI TAMBÉM
+        // --neg if needed - FIX HERE TOO
         if (isset($options['neg']) && $options['neg'] === true) {
             $altCommand .= ' --neg';
         }
         
-        // --allow-matching se necessário
+        // --allow-matching if needed
         if (isset($options['allow_matching']) && $options['allow_matching'] === true) {
             $altCommand .= ' --allow-matching';
         }
         
-        // --wide se necessário
+        // --wide if needed
         if (isset($options['wide']) && $options['wide'] === true) {
             $altCommand .= ' --wide';
         }
         
-        // --set-search com espaço (não com =)
+        // --set-search with space (not with =)
         $altCommand .= ' --set-search ' . escapeshellarg($setSearch);
         
-        // Opções com valores
+        // Options with values
         if (isset($options['scale']) && (float)$options['scale'] != 1.0) {
             $altCommand .= ' --scale=' . escapeshellarg((string)$options['scale']);
         }
@@ -1543,7 +1543,7 @@ function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = 
             $altCommand .= ' --delimiter=' . escapeshellarg($options['delimiter']);
         }
         
-        // Argumentos posicionais (CONTA e ARQUIVO CSV) - ÚLTIMOS!
+        // Positional arguments (ACCOUNT and CSV FILE) - LAST!
         $altCommand .= ' ' . escapeshellarg($account);
         $altCommand .= ' ' . escapeshellarg($csvFile);
         
@@ -1557,7 +1557,7 @@ function executeLimport($ledgerFile, $csvFile, $account, $setSearch, $options = 
         $result = implode("\n", $altOutput);
     }
     
-    // Modo preview
+    // Preview mode
     if ($isPreview) {
         $previewHeader = "=== CSV IMPORT PREVIEW ===\n";
         $previewHeader .= "Ledger file: " . basename($ledgerFile) . "\n";
@@ -1635,8 +1635,8 @@ function importCSV($ledgerFile, $isPreview = false) {
         return "Error: Account is required for CSV import.";
     }
     
-    // Prepare options - CORREÇÃO CRÍTICA AQUI
-    // Processar checkboxes da mesma forma que --wide
+    // Prepare options - CRITICAL FIX HERE
+    // Process checkboxes the same way as --wide
     $options = [
         'neg' => isset($_POST['csv_neg']) && ($_POST['csv_neg'] == '1' || $_POST['csv_neg'] == 'on'),
         'allow_matching' => isset($_POST['csv_allow_matching']) && ($_POST['csv_allow_matching'] == '1' || $_POST['csv_allow_matching'] == 'on'),
@@ -1672,16 +1672,16 @@ function importCSV($ledgerFile, $isPreview = false) {
     }
     
     // ==========================================================
-    // CORREÇÃO COMPLETA DA FORMATAÇÃO DO ARQUIVO
+    // COMPLETE FILE FORMATTING FIX
     // ==========================================================
     
-    // 1. Ler conteúdo atual do arquivo ledger
+    // 1. Read current ledger file content
     $content = file_get_contents($ledgerFile);
     
-    // 2. Remover TODAS as quebras de linha extras no final
+    // 2. Remove ALL extra line breaks at the end
     $content = rtrim($content);
     
-    // 3. Extrair transações do output (remover cabeçalho de preview se existir)
+    // 3. Extract transactions from output (remove preview header if exists)
     $transactionsOutput = $output;
     if (strpos($output, '=== CSV IMPORT PREVIEW ===') !== false) {
         $lines = explode("\n", $output);
@@ -1694,23 +1694,23 @@ function importCSV($ledgerFile, $isPreview = false) {
         }
         $transactionsOutput = implode("\n", array_slice($lines, $start));
         
-        // Remover nota do modo preview no final
+        // Remove preview mode note at the end
         $transactionsOutput = preg_replace('/\n=== PREVIEW MODE ===.*/s', '', $transactionsOutput);
     }
     
-    // 4. Limpar o output das transações
+    // 4. Clean the transactions output
     $transactionsOutput = trim($transactionsOutput);
     
-    // Se não há transações para importar, retornar
+    // If there are no transactions to import, return
     if (empty($transactionsOutput)) {
         return "No transactions were imported from CSV.";
     }
     
-    // 5. PROCESSAMENTO CRÍTICO: Garantir formatação correta das transações
-    // Cada transação deve terminar com \n\n (duas quebras de linha)
-    // O arquivo final deve terminar com \n\n\n (três quebras de linha)
+    // 5. CRITICAL PROCESSING: Ensure correct transaction formatting
+    // Each transaction must end with \n\n (two line breaks)
+    // The final file must end with \n\n\n (three line breaks)
     
-    // Dividir por linhas
+    // Split by lines
     $lines = explode("\n", $transactionsOutput);
     $formattedLines = [];
     $inTransaction = false;
@@ -1719,91 +1719,91 @@ function importCSV($ledgerFile, $isPreview = false) {
     foreach ($lines as $line) {
         $trimmedLine = trim($line);
         
-        // Se é início de nova transação (linha com data YYYY/MM/DD)
+        // If it's the start of a new transaction (line with date YYYY/MM/DD)
         if (preg_match('/^\d{4}\/\d{2}\/\d{2}\s/', $line)) {
-            // Se já estávamos em uma transação, processar a transação anterior
+            // If we were already in a transaction, process the previous transaction
             if ($inTransaction && !empty($transactionLines)) {
-                // Adicionar transação formatada
+                // Add formatted transaction
                 foreach ($transactionLines as $transLine) {
                     $formattedLines[] = $transLine;
                 }
-                // Adicionar linha em branco após a transação (\n\n)
+                // Add blank line after transaction (\n\n)
                 $formattedLines[] = '';
                 $transactionLines = [];
             }
             
-            // Iniciar nova transação
+            // Start new transaction
             $inTransaction = true;
             $transactionLines[] = $line;
         }
-        // Se é linha dentro de uma transação (comentário ou conta)
+        // If it's a line inside a transaction (comment or account)
         elseif ($inTransaction) {
-            // Linha vazia dentro de transação - ignorar (não deve ter)
+            // Empty line inside transaction - ignore (shouldn't have)
             if ($trimmedLine === '') {
                 continue;
             }
             $transactionLines[] = $line;
         }
-        // Linha fora de transação (não deveria acontecer)
+        // Line outside transaction (shouldn't happen)
         else {
             $formattedLines[] = $line;
         }
     }
     
-    // Processar última transação
+    // Process last transaction
     if ($inTransaction && !empty($transactionLines)) {
         foreach ($transactionLines as $transLine) {
             $formattedLines[] = $transLine;
         }
-        // Adicionar linha em branco após a última transação (\n\n)
+        // Add blank line after last transaction (\n\n)
         $formattedLines[] = '';
     }
     
-    // Remover última linha em branco se for a única (será adicionada depois)
+    // Remove last blank line if it's the only one (will be added later)
     if (end($formattedLines) === '' && count($formattedLines) > 1) {
         array_pop($formattedLines);
     }
     
-    // Reconstruir transactionsOutput formatado
+    // Rebuild formatted transactionsOutput
     $transactionsOutput = implode("\n", $formattedLines);
     
-    // 6. PREPARAR CONTEÚDO FINAL DO ARQUIVO
+    // 6. PREPARE FINAL FILE CONTENT
     
-    // Se o arquivo original tem conteúdo
+    // If the original file has content
     if (!empty(trim($content))) {
-        // Remover quebras de linha extras no final
+        // Remove extra line breaks at the end
         $content = rtrim($content);
         
-        // Verificar o final do conteúdo atual
+        // Check the end of current content
         $contentLength = strlen($content);
         $lastChars = '';
         if ($contentLength >= 3) {
             $lastChars = substr($content, -3);
         }
         
-        // Se o conteúdo já termina com \n\n\n, manter
+        // If content already ends with \n\n\n, keep
         if ($lastChars === "\n\n\n") {
-            // Já está correto, não fazer nada
+            // Already correct, do nothing
         }
-        // Se termina com \n\n, adicionar mais um \n
+        // If ends with \n\n, add one more \n
         elseif (substr($content, -2) === "\n\n") {
             $content .= "\n";
         }
-        // Se termina com \n, adicionar mais dois \n
+        // If ends with \n, add two more \n
         elseif (substr($content, -1) === "\n") {
             $content .= "\n\n";
         }
-        // Se não termina com \n, adicionar três \n
+        // If doesn't end with \n, add three \n
         else {
             $content .= "\n\n\n";
         }
     }
     
-    // 7. ADICIONAR NOVAS TRANSAÇÕES
+    // 7. ADD NEW TRANSACTIONS
     
-    // Se transactionsOutput não está vazio
+    // If transactionsOutput is not empty
     if (!empty(trim($transactionsOutput))) {
-        // Se já há conteúdo e não termina com \n\n, ajustar
+        // If there's already content and it doesn't end with \n\n, adjust
         if (!empty(trim($content)) && substr(rtrim($content), -2) !== "\n\n") {
             $content = rtrim($content);
             if (substr($content, -1) === "\n") {
@@ -1813,26 +1813,26 @@ function importCSV($ledgerFile, $isPreview = false) {
             }
         }
         
-        // Adicionar transações
+        // Add transactions
         $content .= $transactionsOutput;
     }
     
-    // 8. GARANTIR FORMATAÇÃO FINAL DO ARQUIVO
+    // 8. ENSURE FINAL FILE FORMATTING
     
-    // Remover espaços em branco extras no final
+    // Remove extra whitespace at the end
     $content = rtrim($content);
     
-    // Garantir que o arquivo termine com \n\n\n (três quebras de linha)
-    // Isso significa 2 linhas em branco no final
+    // Ensure file ends with \n\n\n (three line breaks)
+    // This means 2 blank lines at the end
     $content .= "\n\n\n";
     
-    // 9. SALVAR ARQUIVO
+    // 9. SAVE FILE
     
     if (file_put_contents($ledgerFile, $content, LOCK_EX) !== false) {
-        // Tentar definir permissões restritivas
+        // Try to set restrictive permissions
         @chmod($ledgerFile, 0600);
         
-        // Contar transações importadas
+        // Count imported transactions
         $transactionCount = 0;
         $lines = explode("\n", $transactionsOutput);
         foreach ($lines as $line) {
@@ -3057,7 +3057,7 @@ function e($text) {
             font-weight: bold;
         }
         
-        /* CORREÇÃO PARA DROPDOWN LONGO */
+        /* FIX FOR LONG DROPDOWN */
         #csv_date_format, #csv_delimiter {
             width: 100%;
             max-width: 200px;
@@ -3065,25 +3065,25 @@ function e($text) {
         }
 
         @media (max-width: 768px) {
-            /* Ajuste para dropdowns em dispositivos móveis */
+            /* Adjustment for dropdowns on mobile devices */
             #csv_date_format, #csv_delimiter,
             #csv_scale {
                 max-width: 100%;
                 width: 100%;
             }
             
-            /* Força uma coluna em mobile */
+            /* Force one column on mobile */
             .options-content {
                 grid-template-columns: 1fr;
                 gap: 12px;
             }
             
-            /* Garante que grupos ocupem toda largura */
+            /* Ensure groups occupy full width */
             .option-group {
                 width: 100%;
             }
             
-            /* Ajusta tamanho da fonte para mobile */
+            /* Adjust font size for mobile */
             .option-group select,
             .option-group input[type="number"] {
                 font-size: 12px;
@@ -3554,7 +3554,7 @@ function e($text) {
                 return;
             }
             
-            // Create FormData - CORREÇÃO: Enviar '1' para checked e '' para não checked
+            // Create FormData - FIX: Send '1' for checked and '' for unchecked
             const formData = new FormData();
             formData.append('ajax_preview_csv', '1');
             formData.append('ajax_file', currentFile);
@@ -3562,7 +3562,7 @@ function e($text) {
             formData.append('csv_account', csvAccount);
             formData.append('csv_set_search', csvSetSearch);
             
-            // CORREÇÃO CRÍTICA: Enviar checkboxes como '1' ou 'on' quando marcados
+            // CRITICAL FIX: Send checkboxes as '1' or 'on' when checked
             formData.append('csv_neg', document.getElementById('csv_neg').checked ? '1' : '');
             formData.append('csv_allow_matching', document.getElementById('csv_allow_matching').checked ? '1' : '');
             formData.append('csv_wide', document.getElementById('csv_wide').checked ? '1' : '');
@@ -3571,7 +3571,7 @@ function e($text) {
             formData.append('csv_date_format', document.getElementById('csv_date_format').value);
             formData.append('csv_delimiter', document.getElementById('csv_delimiter').value);
             
-            // Debug no console
+            // Debug in console
             console.log('Preview CSV - csv_neg checked:', document.getElementById('csv_neg').checked);
             console.log('Preview CSV - csv_allow_matching checked:', document.getElementById('csv_allow_matching').checked);
             console.log('Preview CSV - csv_wide checked:', document.getElementById('csv_wide').checked);
@@ -3919,7 +3919,7 @@ function e($text) {
                 return;
             }
             
-            // Create FormData - CORREÇÃO: Enviar '1' para checked e '' para não checked
+            // Create FormData - FIX: Send '1' for checked and '' for unchecked
             const formData = new FormData();
             formData.append('ajax_import_csv', '1');
             formData.append('ajax_file', currentFile);
@@ -3927,7 +3927,7 @@ function e($text) {
             formData.append('csv_account', csvAccount);
             formData.append('csv_set_search', csvSetSearch);
             
-            // CORREÇÃO CRÍTICA: Enviar checkboxes como '1' ou 'on' quando marcados
+            // CRITICAL FIX: Send checkboxes as '1' or 'on' when checked
             formData.append('csv_neg', document.getElementById('csv_neg').checked ? '1' : '');
             formData.append('csv_allow_matching', document.getElementById('csv_allow_matching').checked ? '1' : '');
             formData.append('csv_wide', document.getElementById('csv_wide').checked ? '1' : '');
@@ -3936,7 +3936,7 @@ function e($text) {
             formData.append('csv_date_format', document.getElementById('csv_date_format').value);
             formData.append('csv_delimiter', document.getElementById('csv_delimiter').value);
             
-            // Debug no console
+            // Debug in console
             console.log('Import CSV - csv_neg checked:', document.getElementById('csv_neg').checked);
             console.log('Import CSV - csv_allow_matching checked:', document.getElementById('csv_allow_matching').checked);
             console.log('Import CSV - csv_wide checked:', document.getElementById('csv_wide').checked);
