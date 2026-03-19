@@ -552,6 +552,33 @@ end
 TRANSACTION_DATE_FORMAT = "%Y/%m/%d"
 DISPLAY_PRECISION = 2
 
+# Função auxiliar para formatar duração como no Go (com anos, semanas e dias)
+def format_duration(days : Int) : String
+  return "0 days" if days == 0
+  
+  years = days // 365
+  remaining_after_years = days % 365
+  
+  weeks = remaining_after_years // 7
+  remaining_days = remaining_after_years % 7
+  
+  parts = [] of String
+  
+  if years > 0
+    parts << "#{years} year#{years > 1 ? "s" : ""}"
+  end
+  
+  if weeks > 0
+    parts << "#{weeks} week#{weeks > 1 ? "s" : ""}"
+  end
+  
+  if remaining_days > 0
+    parts << "#{remaining_days} day#{remaining_days > 1 ? "s" : ""}"
+  end
+  
+  parts.join(" ")
+end
+
 def main
   args = ARGV.dup
   
@@ -711,7 +738,10 @@ def main
         start_d = transactions[0].date
         end_d = transactions.last.date
         days = (end_d - start_d).total_days.to_i
-        period_string = days.to_s + (days > 1 ? " days" : " day")
+        
+        # Formatar período como anos, semanas e dias (como no Go)
+        period_string = format_duration(days)
+        
         trans_per_day = days > 0 ? transactions.size / days : transactions.size
 
         payees = {} of String => Bool
@@ -734,15 +764,11 @@ def main
         hours_since_last = seconds_since_last / 3600
         hours_since_last += 1 if (seconds_since_last % 3600) > 0
 
-        time_since_last_post = ""
-        if hours_since_last >= 24
-          days_since = hours_since_last / 24
-          time_since_last_post = days_since.to_i.to_s + (days_since > 1 ? " days" : " day")
-        elsif hours_since_last > 0
-          time_since_last_post = hours_since_last.to_i.to_s + (hours_since_last > 1 ? " hours" : " hour")
-        else
-          time_since_last_post = "0 hours"
-        end
+        # Calcular dias desde último post como inteiro
+        days_since_last = (hours_since_last / 24).to_i
+        
+        # Formatar tempo desde último post como anos, semanas e dias (como no Go)
+        time_since_last_post = format_duration(days_since_last)
 
         postings_per_day = days > 0 ? postings / days : postings
 
