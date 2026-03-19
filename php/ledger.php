@@ -75,7 +75,6 @@ class SimpleRational
         return 0;
     }
     
-    // ADICIONADO: Método equals() necessário para o handleBalance()
     public function equals(SimpleRational $other): bool
     {
         return abs($this->value - $other->value) < 0.000001;
