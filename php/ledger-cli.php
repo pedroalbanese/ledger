@@ -543,7 +543,7 @@ class LedgerCLI
     }
 
     /**
-     * Format duration as weeks and days (like Go)
+     * Format duration as years, weeks and days (like Go)
      */
     private function formatDuration(int $days): string
     {
@@ -551,10 +551,17 @@ class LedgerCLI
             return '0 days';
         }
         
-        $weeks = (int)($days / 7);
-        $remainingDays = $days % 7;
+        $years = (int)($days / 365);
+        $remainingAfterYears = $days % 365;
+        
+        $weeks = (int)($remainingAfterYears / 7);
+        $remainingDays = $remainingAfterYears % 7;
         
         $parts = [];
+        
+        if ($years > 0) {
+            $parts[] = $years . ' year' . ($years > 1 ? 's' : '');
+        }
         
         if ($weeks > 0) {
             $parts[] = $weeks . ' week' . ($weeks > 1 ? 's' : '');
@@ -581,7 +588,7 @@ class LedgerCLI
         $interval = $endDate->diff($startDate);
         $days = $interval->days;
         
-        // Format period as weeks and days (like Go)
+        // Format period as years, weeks and days (like Go)
         $periodString = $this->formatDuration($days);
         
         // Calculate transactions per day
@@ -637,7 +644,7 @@ class LedgerCLI
         // Calculate days since last post
         $daysSinceLast = (int)($hoursSinceLast / 24);
         
-        // Format time since last post as weeks and days (like Go)
+        // Format time since last post as years, weeks and days (like Go)
         $timeSinceLastPost = $this->formatDuration($daysSinceLast);
         
         // If still showing 0, force calculation based on UTC
