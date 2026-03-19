@@ -348,6 +348,7 @@ class Parser
 
 class Ledger
 {
+    const PERIOD_DAILY = 'Daily';  // ADDED
     const PERIOD_WEEK = 'Weekly';
     const PERIOD_2WEEK = 'BiWeekly';
     const PERIOD_MONTH = 'Monthly';
@@ -412,6 +413,11 @@ class Ledger
         $start->setTime(0, 0, 0);
         
         switch ($period) {
+            case self::PERIOD_DAILY:  // ADDED
+                // Daily periods start at midnight of each day
+                // No adjustment needed
+                break;
+                
             case self::PERIOD_WEEK:
                 // Find the most recent Sunday (including today if it's Sunday)
                 $dayOfWeek = (int)$start->format('w'); // 0 = Sunday, 6 = Saturday
@@ -494,27 +500,37 @@ class Ledger
         $end = clone $start;
         
         switch ($period) {
+            case self::PERIOD_DAILY:  // ADDED
+                $end->modify('+1 day');
+                break;
+                
             case self::PERIOD_WEEK:
                 $end->modify('+7 days');
                 break;
+                
             case self::PERIOD_2WEEK:
                 $end->modify('+14 days');
                 break;
+                
             case self::PERIOD_MONTH:
                 $end->modify('first day of next month');
                 break;
+                
             case self::PERIOD_2MONTH:
                 $end->modify('+2 months');
                 $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
                 break;
+                
             case self::PERIOD_QUARTER:
                 $end->modify('+3 months');
                 $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
                 break;
+                
             case self::PERIOD_SEMIYEAR:
                 $end->modify('+6 months');
                 $end->setDate((int)$end->format('Y'), (int)$end->format('m'), 1);
                 break;
+                
             case self::PERIOD_YEAR:
                 $end->modify('first day of next year');
                 break;
@@ -602,23 +618,32 @@ class Ledger
     private static function formatPeriodKey(\DateTime $start, string $period): string
     {
         switch ($period) {
+            case self::PERIOD_DAILY:  // ADDED
+                return $start->format('Y/m/d');
+                
             case self::PERIOD_WEEK:
             case self::PERIOD_2WEEK:
                 return $start->format('Y/m/d');
+                
             case self::PERIOD_MONTH:
                 return $start->format('Y/m');
+                
             case self::PERIOD_2MONTH:
                 $month = (int)$start->format('m');
                 $biMonth = ceil($month / 2);
                 return $start->format('Y') . '-BM' . $biMonth;
+                
             case self::PERIOD_QUARTER:
                 $quarter = ceil((int)$start->format('m') / 3);
                 return $start->format('Y') . '-Q' . $quarter;
+                
             case self::PERIOD_SEMIYEAR:
                 $semester = ((int)$start->format('m') <= 6) ? 1 : 2;
                 return $start->format('Y') . '-H' . $semester;
+                
             case self::PERIOD_YEAR:
                 return $start->format('Y');
+                
             default:
                 return $start->format('Y/m/d');
         }
