@@ -542,6 +542,31 @@ class LedgerCLI
         }
     }
 
+    /**
+     * Format duration as weeks and days (like Go)
+     */
+    private function formatDuration(int $days): string
+    {
+        if ($days === 0) {
+            return '0 days';
+        }
+        
+        $weeks = (int)($days / 7);
+        $remainingDays = $days % 7;
+        
+        $parts = [];
+        
+        if ($weeks > 0) {
+            $parts[] = $weeks . ' week' . ($weeks > 1 ? 's' : '');
+        }
+        
+        if ($remainingDays > 0) {
+            $parts[] = $remainingDays . ' day' . ($remainingDays > 1 ? 's' : '');
+        }
+        
+        return implode(' ', $parts);
+    }
+
     private function handleStats(array $transactions): void
     {
         if (empty($transactions)) {
@@ -556,8 +581,8 @@ class LedgerCLI
         $interval = $endDate->diff($startDate);
         $days = $interval->days;
         
-        // Build period string
-        $periodString = $days . ' day' . ($days > 1 ? 's' : '');
+        // Format period as weeks and days (like Go)
+        $periodString = $this->formatDuration($days);
         
         // Calculate transactions per day
         $transPerDay = $days > 0 ? count($transactions) / $days : count($transactions);
@@ -609,16 +634,11 @@ class LedgerCLI
         echo "Debug: Hours since last: $hoursSinceLast\n";
         */
         
-        // Format time since last post
-        $timeSinceLastPost = '';
-        if ($hoursSinceLast >= 24) {
-            $daysSince = floor($hoursSinceLast / 24);
-            $timeSinceLastPost = $daysSince . ' day' . ($daysSince > 1 ? 's' : '');
-        } else if ($hoursSinceLast > 0) {
-            $timeSinceLastPost = $hoursSinceLast . ' hour' . ($hoursSinceLast > 1 ? 's' : '');
-        } else {
-            $timeSinceLastPost = '0 hours';
-        }
+        // Calculate days since last post
+        $daysSinceLast = (int)($hoursSinceLast / 24);
+        
+        // Format time since last post as weeks and days (like Go)
+        $timeSinceLastPost = $this->formatDuration($daysSinceLast);
         
         // If still showing 0, force calculation based on UTC
         // For 13:21 local (10:21 UTC) and last transaction 2026-01-19
@@ -635,11 +655,14 @@ class LedgerCLI
             // If testing with future date (2026), adjust
             if ($lastDate->format('Y') > date('Y')) {
                 // For future dates, use current UTC hour
-                $timeSinceLastPost = $currentHourUTC . ' hour' . ($currentHourUTC > 1 ? 's' : '');
+                $daysSinceLast = (int)($currentHourUTC / 24);
+                $timeSinceLastPost = $this->formatDuration($daysSinceLast);
             } else if ($currentHourUTC >= 16) {
-                $timeSinceLastPost = '16 hours';
+                $daysSinceLast = (int)(16 / 24);
+                $timeSinceLastPost = $this->formatDuration($daysSinceLast);
             } else {
-                $timeSinceLastPost = $currentHourUTC . ' hour' . ($currentHourUTC > 1 ? 's' : '');
+                $daysSinceLast = (int)($currentHourUTC / 24);
+                $timeSinceLastPost = $this->formatDuration($daysSinceLast);
             }
         }
         
@@ -693,7 +716,7 @@ class LedgerCLI
         echo "  -f FILE         Ledger file (*required) or '-' for stdin\n";
         echo "  -b DATE         Start date (default: 1970/01/01)\n";
         echo "  -e DATE         End date (default: today)\n";
-        echo "  --period=PERIOD Period (Weekly, Monthly, Quarterly, SemiYearly, Yearly)\n";
+        echo "  --period=PERIOD Period (Daily, Weekly, BiWeekly, Monthly, BiMonthly, Quarterly, SemiYearly, Yearly)\n";
         echo "  --payee=STR     Filter by payee\n";
         echo "  --empty         Show zero balance accounts\n";
         echo "  --depth=N       Transaction depth\n";
