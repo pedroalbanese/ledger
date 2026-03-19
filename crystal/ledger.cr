@@ -267,6 +267,7 @@ end
 # ==============================
 
 class Ledger
+  PERIOD_DAILY     = "Daily"      # ADDED
   PERIOD_WEEK      = "Weekly"
   PERIOD_2WEEK     = "BiWeekly"
   PERIOD_MONTH     = "Monthly"
@@ -317,6 +318,10 @@ class Ledger
     start_date = Time.utc(start_date.year, start_date.month, start_date.day, 0, 0, 0)
 
     case period
+    when PERIOD_DAILY     # ADDED
+      # Daily periods start at midnight of each day
+      # No adjustment needed
+      
     when PERIOD_WEEK
       day_of_week = start_date.day_of_week.value % 7
       if day_of_week > 0
@@ -369,6 +374,9 @@ class Ledger
     end_date = start_date
 
     case period
+    when PERIOD_DAILY     # ADDED
+      end_date = start_date + 1.day
+      
     when PERIOD_WEEK
       end_date = start_date + 7.days
     when PERIOD_2WEEK
@@ -445,6 +453,9 @@ class Ledger
 
   private def self.format_period_key(start_date : Time, period : String) : String
     case period
+    when PERIOD_DAILY     # ADDED
+      start_date.to_s("%Y/%m/%d")
+      
     when PERIOD_WEEK, PERIOD_2WEEK
       start_date.to_s("%Y/%m/%d")
     when PERIOD_MONTH
@@ -958,7 +969,7 @@ def show_usage
   puts "  -f FILE         Ledger file (*required) or '-' for stdin"
   puts "  -b DATE         Start date (default: 1970/01/01)"
   puts "  -e DATE         End date (default: today)"
-  puts "  --period=PERIOD Period (Weekly, BiWeekly, Monthly, BiMonthly, Quarterly, SemiYearly, Yearly)"
+  puts "  --period=PERIOD Period (Daily, Weekly, BiWeekly, Monthly, BiMonthly, Quarterly, SemiYearly, Yearly)"
   puts "  --payee=STR     Filter by payee"
   puts "  --empty         Show zero balance accounts"
   puts "  --depth=N       Transaction depth"
