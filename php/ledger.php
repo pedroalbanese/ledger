@@ -23,7 +23,7 @@ class SimpleRational
                 $value = '-' . $value;
             }
             // Remove currency characters
-            $value = preg_replace('/[\$\€\£\¥]/', '', $value);
+            $value = preg_replace('/[\$\x{20AC}\x{00A3}\x{00A5}]/u', '', $value);
         }
         $this->value = (float) $value;
     }
@@ -284,7 +284,7 @@ class Parser
         }
         
         // Remove currency characters
-        $testStr = preg_replace('/[\$\€\£\¥\s,]/', '', $testStr);
+        $testStr = preg_replace('/[\$\x{20AC}\x{00A3}\x{00A5}\s,]/u', '', $testStr);
         
         // Replace comma with dot
         $testStr = str_replace(',', '.', $testStr);
