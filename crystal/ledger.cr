@@ -980,7 +980,7 @@ end
 
 def show_usage
   puts "Ledger CLI in Crystal"
-  puts "================="
+  puts "====================="
   puts ""
   puts "Usage: ledger [OPTIONS] COMMAND [FILTERS]"
   puts ""
