@@ -22,7 +22,7 @@ class SimpleRational
                 $value = preg_replace('/[\(\)]/', '', $value);
                 $value = '-' . $value;
             }
-            // Remove dollar, euro, pound sterling, yen and yuan signs
+            // Remove euro, pound sterling, yen and yuan signs
             $value = preg_replace('/[\$\x{20AC}\x{00A3}\x{00A5}]/u', '', $value);
         }
         $this->value = (float) $value;
@@ -283,7 +283,7 @@ class Parser
             $isNegative = true;
         }
         
-        // Remove dollar, euro, pound sterling, yen and yuan signs
+        // Remove euro, pound sterling, yen and yuan signs
         $testStr = preg_replace('/[\$\x{20AC}\x{00A3}\x{00A5}\s,]/u', '', $testStr);
         
         // Replace comma with dot
