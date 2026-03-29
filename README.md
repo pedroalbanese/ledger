@@ -84,3 +84,16 @@ bayesian classification of the payee.
 - C++ Ledger permits having amounts prefixed with $; Ledger in Go does not
 
 - C++ Ledger permits an empty *Payee Description*; Ledger in Go does not
+
+## Contribute
+**Use issues for everything**
+- You can help and get help by:
+  - Reporting doubts and questions
+- You can contribute by:
+  - Reporting issues
+  - Suggesting new features or enhancements
+  - Improve/fix documentation
+
+## License
+
+This project is licensed under the ISC License.
