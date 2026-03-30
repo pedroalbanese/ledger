@@ -44,7 +44,8 @@ A ledger file may include other ledger files using `include <filepath>`. The
 This will parse a ledger file into an array of Transaction structs.
 There is also a function get balances for all accounts in the ledger file.
 
-[GoDoc](https://pkg.go.dev/github.com/pedroalbanese/ledger)
+[GoDoc](https://pkg.go.dev/github.com/pedroalbanese/ledger)   
+[Wiki](https://github.com/pedroalbanese/ledger/wiki)
 
 ## cmd/ledger
 
