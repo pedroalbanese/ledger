@@ -183,12 +183,12 @@ end
 
 dest_account = matching.last
 
-# Build Bayesian classifier
+# Build Bayesian classifier - preserve order as they appear in ledger
 classes = [] of String
 transactions.each do |t|
   t.accountChanges.each do |ac|
-    if ac.name.downcase.includes?(set_search.downcase)
-      classes << ac.name unless classes.includes?(ac.name)
+    if ac.name.downcase.includes?(set_search.downcase) && !classes.includes?(ac.name)
+      classes << ac.name
     end
   end
 end
@@ -199,7 +199,7 @@ classes.each do |klass|
   datas[klass] = {freqs: {} of String => Int32, total: 0}
 end
 
-# Train the classifier
+# Train the classifier - same as Go/PHP
 transactions.each do |t|
   payee_words = t.payee.downcase.strip.split(/\s+/)
   t.accountChanges.each do |ac|
@@ -209,7 +209,7 @@ transactions.each do |t|
       payee_words.each do |word|
         freqs[word] = (freqs[word]? || 0) + 1
       end
-      datas[ac.name] = {freqs: freqs, total: data[:total] + payee_words.size}
+      datas[ac.name] = {freqs: freqs, total: data[:total] + 1}
     end
   end
 end
@@ -248,10 +248,12 @@ def classify_payee(payee : String, classes : Array(String), datas : Hash(String,
     scores << score
   end
 
-  # Find max score
+  # Find max score - same as PHP/Go
   max_idx = 0
   (1...scores.size).each do |i|
-    max_idx = i if scores[max_idx] < scores[i]
+    if scores[max_idx] < scores[i]
+      max_idx = i
+    end
   end
   classes[max_idx]
 end
@@ -307,8 +309,10 @@ lines.each do |line|
   # Classify payee
   classified_account = classify_payee(payee, classes, datas)
 
-  # Print transaction
-  puts "; #{note}" if !note.empty?
+  # Print transaction - exactly like PHP (no space after semicolon)
+  if !note.empty?
+    puts ";#{note}"
+  end
   puts "#{date.to_s(TRANSACTION_DATE_FORMAT)} #{payee}"
 
   balance_str = sprintf("%.#{DISPLAY_PRECISION}f", csv_amount)
