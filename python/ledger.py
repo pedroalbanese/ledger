@@ -547,72 +547,81 @@ def format_duration(days: int) -> str:
 
 
 def print_balances(balances: List[Account], columns: int, empty: bool, depth: int):
-    """Print account balances"""
+    """Print account balances - CORRECTED VERSION"""
     max_depth = depth if depth >= 0 else 2**31 - 1
     show_empty = empty
     
-    sorted_balances = sorted(balances, key=lambda a: a.name)
+    # Get balances as dictionary
+    balance_map = {acc.name: acc.balance for acc in balances}
     
-    all_accounts = {}
+    # Build hierarchy by accumulating from leaves only
+    hierarchy = {}
     
-    for account in sorted_balances:
-        account_name = account.name
-        parts = account_name.split(':')
+    # First, identify leaf accounts (accounts with no children)
+    all_names = set(balance_map.keys())
+    leaf_names = set()
+    
+    for name in all_names:
+        has_child = False
+        for other in all_names:
+            if other != name and other.startswith(name + ':'):
+                has_child = True
+                break
+        if not has_child:
+            leaf_names.add(name)
+    
+    # Accumulate from leaves up
+    for leaf in leaf_names:
+        balance = balance_map[leaf]
+        parts = leaf.split(':')
         
-        if account_name not in all_accounts:
-            all_accounts[account_name] = SimpleRational.zero()
-        all_accounts[account_name] = all_accounts[account_name].plus(account.balance)
-        
-        for i in range(1, len(parts)):
-            parent_name = ':'.join(parts[:i])
-            if parent_name not in all_accounts:
-                all_accounts[parent_name] = SimpleRational.zero()
-            all_accounts[parent_name] = all_accounts[parent_name].plus(account.balance)
+        # Add to all ancestors including itself
+        for i in range(1, len(parts) + 1):
+            ancestor = ':'.join(parts[:i])
+            if ancestor not in hierarchy:
+                hierarchy[ancestor] = SimpleRational.zero()
+            hierarchy[ancestor] = hierarchy[ancestor].plus(balance)
     
-    display_accounts = {}
+    # Also include any account that has direct balance but is not a leaf
+    for name, balance in balance_map.items():
+        if name not in hierarchy:
+            hierarchy[name] = balance
     
-    for account_name, balance in all_accounts.items():
-        depth_count = account_name.count(':') + 1
-        
+    # Apply depth filter
+    display = {}
+    for name, balance in hierarchy.items():
+        depth_count = name.count(':') + 1
         if depth_count <= max_depth:
-            display_accounts[account_name] = balance
-        else:
-            parts = account_name.split(':')
-            parent_name = ':'.join(parts[:max_depth])
-            if parent_name not in display_accounts:
-                display_accounts[parent_name] = SimpleRational.zero()
-            display_accounts[parent_name] = display_accounts[parent_name].plus(balance)
+            if show_empty or balance.sign() != 0:
+                display[name] = balance
     
-    filtered = []
+    # Sort: by root account (first segment), then by name
+    # This groups Expenses together, Income together, etc.
+    def sort_key(name):
+        parts = name.split(':')
+        return (parts[0], name)  # Root first, then full name
     
-    for account_name, balance in display_accounts.items():
-        if show_empty or balance.sign() != 0:
-            parts = account_name.split(':')
-            filtered.append({
-                'name': account_name,
-                'balance': balance,
-                'parts': parts,
-                'depth': len(parts)
-            })
+    sorted_names = sorted(display.keys(), key=sort_key)
     
-    filtered.sort(key=lambda x: (x['parts'], len(x['parts'])))
+    # Calculate total
+    total = SimpleRational.zero()
+    for balance in balance_map.values():
+        total = total.plus(balance)
     
-    overall_balance = SimpleRational.zero()
-    for account in balances:
-        overall_balance = overall_balance.plus(account.balance)
-    
-    for item in filtered:
-        balance_str = item['balance'].to_float(DISPLAY_PRECISION)
-        spaces = columns - len(item['name']) - len(balance_str)
+    # Print
+    for name in sorted_names:
+        balance = display[name]
+        balance_str = balance.to_float(DISPLAY_PRECISION)
+        spaces = columns - len(name) - len(balance_str)
         if spaces < 0:
             spaces = 0
-        print(f"{item['name']}{' ' * spaces}{balance_str}")
+        print(f"{name}{' ' * spaces}{balance_str}")
     
-    if filtered:
+    if sorted_names:
         print("-" * columns)
-        balance_str = overall_balance.to_float(DISPLAY_PRECISION)
-        spaces = columns - len(balance_str)
-        print(f"{' ' * spaces}{balance_str}")
+        total_str = total.to_float(DISPLAY_PRECISION)
+        spaces = columns - len(total_str)
+        print(f"{' ' * spaces}{total_str}")
 
 
 def print_transaction(transaction: Transaction, columns: int):
@@ -775,6 +784,9 @@ def main():
             with open(args.file, 'r', encoding='utf-8') as f:
                 content = f.read()
         
+        # Process includes
+        content = process_includes(content, args.file)
+        
         transactions = Parser.parse_ledger(content)
         
         start_time = dt.strptime(args.start_date, TRANSACTION_DATE_FORMAT)
@@ -886,6 +898,43 @@ def main():
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def process_includes(content: str, base_file: str) -> str:
+    """Process include directives in ledger file"""
+    import os
+    
+    lines = content.split('\n')
+    result = []
+    base_dir = os.path.dirname(base_file) if base_file != '-' else os.getcwd()
+    
+    for line in lines:
+        line_stripped = line.strip()
+        
+        # Check if it's an include line
+        match = re.match(r'^(include|!include)\s+["\']?(.+?)["\']?\s*$', line_stripped, re.IGNORECASE)
+        if match:
+            included_file = match.group(2).strip()
+            
+            # Resolve path
+            if os.path.isabs(included_file):
+                included_path = included_file
+            else:
+                included_path = os.path.join(base_dir, included_file)
+            
+            try:
+                with open(included_path, 'r', encoding='utf-8') as f:
+                    included_content = f.read()
+                
+                # Recursively process includes in the included file
+                included_processed = process_includes(included_content, included_path)
+                result.append(included_processed.rstrip('\n'))
+            except Exception as e:
+                raise RuntimeError(f"Could not read included file '{included_file}': {e}")
+        else:
+            result.append(line)
+    
+    return '\n'.join(result)
 
 
 if __name__ == "__main__":
