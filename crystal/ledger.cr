@@ -109,7 +109,7 @@ class Transaction
 end
 
 # ==============================
-# Parser - Exatamente como o PHP
+# Parser
 # ==============================
 
 class Parser
@@ -263,11 +263,11 @@ class Parser
 end
 
 # ==============================
-# Ledger - Exatamente como o PHP
+# Ledger
 # ==============================
 
 class Ledger
-  PERIOD_DAILY     = "Daily"      # ADDED
+  PERIOD_DAILY     = "Daily"
   PERIOD_WEEK      = "Weekly"
   PERIOD_2WEEK     = "BiWeekly"
   PERIOD_MONTH     = "Monthly"
@@ -318,9 +318,8 @@ class Ledger
     start_date = Time.utc(start_date.year, start_date.month, start_date.day, 0, 0, 0)
 
     case period
-    when PERIOD_DAILY     # ADDED
+    when PERIOD_DAILY
       # Daily periods start at midnight of each day
-      # No adjustment needed
       
     when PERIOD_WEEK
       day_of_week = start_date.day_of_week.value % 7
@@ -374,7 +373,7 @@ class Ledger
     end_date = start_date
 
     case period
-    when PERIOD_DAILY     # ADDED
+    when PERIOD_DAILY
       end_date = start_date + 1.day
       
     when PERIOD_WEEK
@@ -453,7 +452,7 @@ class Ledger
 
   private def self.format_period_key(start_date : Time, period : String) : String
     case period
-    when PERIOD_DAILY     # ADDED
+    when PERIOD_DAILY
       start_date.to_s("%Y/%m/%d")
       
     when PERIOD_WEEK, PERIOD_2WEEK
@@ -552,7 +551,6 @@ end
 TRANSACTION_DATE_FORMAT = "%Y/%m/%d"
 DISPLAY_PRECISION = 2
 
-# Função auxiliar para formatar duração como no Go (com anos, semanas e dias)
 def format_duration(days : Int) : String
   return "0 days" if days == 0
   
@@ -579,309 +577,91 @@ def format_duration(days : Int) : String
   parts.join(" ")
 end
 
-def main
-  args = ARGV.dup
-  
-  file = ""
-  command = ""
-  filters = [] of String
-  start_date = "1970/01/01"
-  end_date = ""
-  period = ""
-  payee = ""
-  empty = false
-  depth = -1
-  columns = 79
-  wide = false
-
-  i = 0
-  while i < args.size
-    arg = args[i]
-    
-    case arg
-    when "-f"
-      if i + 1 < args.size
-        file = args[i + 1]
-        i += 1
-      end
-    when "-b"
-      if i + 1 < args.size
-        start_date = args[i + 1]
-        i += 1
-      end
-    when "-e"
-      if i + 1 < args.size
-        end_date = args[i + 1]
-        i += 1
-      end
-    when "--period"
-      if i + 1 < args.size
-        period = args[i + 1]
-        i += 1
-      end
-    when "--payee"
-      if i + 1 < args.size
-        payee = args[i + 1]
-        i += 1
-      end
-    when "--empty"
-      empty = true
-    when "--depth"
-      if i + 1 < args.size
-        depth = args[i + 1].to_i
-        i += 1
-      end
-    when "--columns"
-      if i + 1 < args.size
-        columns = args[i + 1].to_i
-        i += 1
-      end
-    when "--wide"
-      wide = true
-    when "--help"
-      show_usage
-      return
-    else
-      if arg.starts_with?("-")
-        STDERR.puts "Unknown option: #{arg}"
-        show_usage
-        exit(1)
-      elsif command.empty?
-        command = arg
-      else
-        filters << arg
-      end
-    end
-    
-    i += 1
-  end
-
-  if wide
-    columns = 132
-  end
-
-  if file.empty?
-    STDERR.puts "Error: Ledger file required (-f option)"
-    show_usage
-    exit(1)
-  end
-
-  if command.empty?
-    STDERR.puts "Error: Command required"
-    show_usage
-    exit(1)
-  end
-
-  if end_date.empty?
-    now = Time.utc
-    end_date = now.to_s(TRANSACTION_DATE_FORMAT)
-  end
-
-  begin
-    content = file == "-" ? STDIN.gets_to_end : File.read(file)
-    transactions = Parser.parse_ledger(content)
-    
-    start_time = Time.parse_utc(start_date, TRANSACTION_DATE_FORMAT)
-    end_time = Time.parse_utc(end_date, TRANSACTION_DATE_FORMAT)
-    transactions = transactions.select { |t| t.date >= start_time && t.date <= end_time }
-    
-    unless payee.empty?
-      transactions = transactions.select { |t| t.payee.downcase.includes?(payee.downcase) }
-    end
-    
-    case command
-    when "balance", "bal"
-      if period.empty?
-        balances = Ledger.get_balances(transactions, filters)
-        print_balances(balances, columns, empty, depth)
-      else
-        ranges = Ledger.balances_by_period(transactions, period, Ledger::RANGE_PARTITION)
-        ranges.each_with_index do |range, i|
-          puts "\n" + "=" * columns if i > 0
-          puts "#{range[:start].to_s(TRANSACTION_DATE_FORMAT)} - #{range[:end].to_s(TRANSACTION_DATE_FORMAT)}"
-          puts "=" * columns
-          print_balances(range[:balances], columns, empty, depth)
-        end
-      end
-    when "print"
-      transactions.each do |transaction|
-        in_filter = filters.empty?
-        unless in_filter
-          transaction.accountChanges.each do |account_change|
-            filters.each do |filter|
-              if account_change.name.includes?(filter)
-                in_filter = true
-                break
-              end
-            end
-            break if in_filter
-          end
-        end
-        print_transaction(transaction, columns) if in_filter
-      end
-    when "register", "reg"
-      if period.empty?
-        print_register(transactions, filters, columns)
-      else
-        ranges = Ledger.transactions_by_period(transactions, period)
-        ranges.each_with_index do |range, i|
-          puts "=" * columns if i > 0
-          puts "#{range[:start].to_s(TRANSACTION_DATE_FORMAT)} - #{range[:end].to_s(TRANSACTION_DATE_FORMAT)}"
-          puts "=" * columns
-          print_register(range[:transactions], filters, columns)
-        end
-      end
-    when "stats"
-      if transactions.empty?
-        puts "Empty ledger."
-      else
-        start_d = transactions[0].date
-        end_d = transactions.last.date
-        days = (end_d - start_d).total_days.to_i
-        
-        # Formatar período como anos, semanas e dias (como no Go)
-        period_string = format_duration(days)
-        
-        trans_per_day = days > 0 ? transactions.size / days : transactions.size
-
-        payees = {} of String => Bool
-        accounts = {} of String => Bool
-        postings = 0
-        last_date = nil
-
-        transactions.each do |transaction|
-          payees[transaction.payee] = true
-          transaction.accountChanges.each do |account_change|
-            accounts[account_change.name] = true
-            postings += 1
-          end
-          last_date = transaction.date
-        end
-
-        now = Time.utc
-        last_midnight = Time.utc(last_date.not_nil!.year, last_date.not_nil!.month, last_date.not_nil!.day, 0, 0, 0)
-        seconds_since_last = (now - last_midnight).total_seconds.to_i
-        hours_since_last = seconds_since_last / 3600
-        hours_since_last += 1 if (seconds_since_last % 3600) > 0
-
-        # Calcular dias desde último post como inteiro
-        days_since_last = (hours_since_last / 24).to_i
-        
-        # Formatar tempo desde último post como anos, semanas e dias (como no Go)
-        time_since_last_post = format_duration(days_since_last)
-
-        postings_per_day = days > 0 ? postings / days : postings
-
-        puts "Time period               : #{start_d.to_s("%Y-%m-%d")} to #{end_d.to_s("%Y-%m-%d")} (#{period_string})"
-        puts "Unique payees             : #{payees.size}"
-        puts "Unique accounts           : #{accounts.size}"
-        puts "Number of transactions    : #{transactions.size} (#{"%.1f" % trans_per_day} per day)"
-        puts "Number of postings        : #{postings} (#{"%.1f" % postings_per_day} per day)"
-        puts "Time since last post      : #{time_since_last_post}"
-      end
-    when "accounts"
-      all_accounts = {} of String => Bool
-      transactions.each do |transaction|
-        transaction.accountChanges.each do |account_change|
-          all_accounts[account_change.name] = true
-        end
-      end
-      puts "Accounts in ledger:"
-      puts "-" * columns
-      all_accounts.keys.sort.each do |account|
-        puts account
-      end
-      puts "-" * columns
-      printf("Total: %d accounts\n", all_accounts.size)
-    else
-      STDERR.puts "Command '#{command}' not implemented."
-      show_usage
-      exit(1)
-    end
-  rescue e
-    STDERR.puts "Error: #{e.message}"
-    exit(1)
-  end
-end
-
 def print_balances(balances : Array(Account), columns : Int32, empty : Bool, depth : Int32)
   max_depth = depth < 0 ? Int32::MAX : depth
   show_empty = empty
 
-  sorted = balances.sort_by { |a| a.name }
-
-  all_accounts = {} of String => SimpleRational
-
-  sorted.each do |account|
-    account_name = account.name
-    parts = account_name.split(':')
-
-    all_accounts[account_name] = SimpleRational.zero unless all_accounts.has_key?(account_name)
-    all_accounts[account_name] = all_accounts[account_name].not_nil!.plus(account.balance)
-
-    (1...parts.size).each do |i|
-      parent_name = parts[0...i].join(':')
-      all_accounts[parent_name] = SimpleRational.zero unless all_accounts.has_key?(parent_name)
-      all_accounts[parent_name] = all_accounts[parent_name].not_nil!.plus(account.balance)
-    end
-  end
-
-  display_accounts = {} of String => SimpleRational
-
-  all_accounts.each do |account_name, balance|
-    depth_count = account_name.count(':') + 1
-
-    if depth_count <= max_depth
-      display_accounts[account_name] = balance
-    else
-      parts = account_name.split(':')
-      parent_name = parts[0...max_depth].join(':')
-      display_accounts[parent_name] = SimpleRational.zero unless display_accounts.has_key?(parent_name)
-      display_accounts[parent_name] = display_accounts[parent_name].not_nil!.plus(balance)
-    end
-  end
-
-  filtered = [] of NamedTuple(name: String, balance: SimpleRational, parts: Array(String), depth: Int32)
-
-  display_accounts.each do |account_name, balance|
-    if show_empty || balance.sign != 0
-      parts = account_name.split(':')
-      filtered << {
-        name:    account_name,
-        balance: balance,
-        parts:   parts,
-        depth:   parts.size
-      }
-    end
-  end
-
-  filtered.sort! do |a, b|
-    cmp = 0
-    (0...[a[:parts].size, b[:parts].size].min).each do |i|
-      cmp = a[:parts][i] <=> b[:parts][i]
-      break if cmp != 0
-    end
-    cmp = a[:parts].size <=> b[:parts].size if cmp == 0
-    cmp
-  end
-
-  overall_balance = SimpleRational.zero
+  # Get balances as hash
+  balance_map = {} of String => SimpleRational
   balances.each do |account|
-    overall_balance = overall_balance.plus(account.balance)
+    balance_map[account.name] = account.balance
   end
 
-  filtered.each do |item|
-    balance_str = item[:balance].to_f(DISPLAY_PRECISION)
-    spaces = columns - item[:name].size - balance_str.size
+  # Build hierarchy by accumulating from leaves only
+  hierarchy = {} of String => SimpleRational
+
+  # First, identify leaf accounts (accounts with no children)
+  all_names = balance_map.keys.to_set
+  leaf_names = [] of String
+
+  all_names.each do |name|
+    has_child = false
+    all_names.each do |other|
+      if other != name && other.starts_with?(name + ":")
+        has_child = true
+        break
+      end
+    end
+    leaf_names << name unless has_child
+  end
+
+  # Accumulate from leaves up
+  leaf_names.each do |leaf|
+    balance = balance_map[leaf]
+    parts = leaf.split(':')
+
+    # Add to all ancestors including itself
+    (1..parts.size).each do |i|
+      ancestor = parts[0...i].join(':')
+      hierarchy[ancestor] = SimpleRational.zero unless hierarchy.has_key?(ancestor)
+      hierarchy[ancestor] = hierarchy[ancestor].not_nil!.plus(balance)
+    end
+  end
+
+  # Also include any account that has direct balance but is not a leaf
+  balance_map.each do |name, balance|
+    unless hierarchy.has_key?(name)
+      hierarchy[name] = balance
+    end
+  end
+
+  # Apply depth filter
+  display = {} of String => SimpleRational
+  hierarchy.each do |name, balance|
+    depth_count = name.count(':') + 1
+    if depth_count <= max_depth
+      if show_empty || balance.sign != 0
+        display[name] = balance
+      end
+    end
+  end
+
+  # Sort: by root account (first segment), then by name
+  sorted_names = display.keys.sort_by do |name|
+    parts = name.split(':')
+    {parts[0], name}
+  end
+
+  # Calculate total
+  total = SimpleRational.zero
+  balance_map.each_value do |balance|
+    total = total.plus(balance)
+  end
+
+  # Print
+  sorted_names.each do |name|
+    balance = display[name]
+    balance_str = balance.to_f(DISPLAY_PRECISION)
+    spaces = columns - name.size - balance_str.size
     spaces = 0 if spaces < 0
-    puts "#{item[:name]}#{" " * spaces}#{balance_str}"
+    puts "#{name}#{" " * spaces}#{balance_str}"
   end
 
-  unless filtered.empty?
+  unless sorted_names.empty?
     puts "-" * columns
-    balance_str = overall_balance.to_f(DISPLAY_PRECISION)
-    spaces = columns - balance_str.size
-    puts "#{" " * spaces}#{balance_str}"
+    total_str = total.to_f(DISPLAY_PRECISION)
+    spaces = columns - total_str.size
+    puts "#{" " * spaces}#{total_str}"
   end
 end
 
@@ -939,8 +719,6 @@ def print_register(transactions : Array(Transaction), filters : Array(String), c
   col1width = (remaining_width / 3).to_i
   col2width = remaining_width - col1width
 
-  format_str = "%-10.10s %-#{col1width}.#{col1width}s %-#{col2width}.#{col2width}s %10.10s %10.10s"
-
   running_balance = SimpleRational.zero
 
   transactions.each do |transaction|
@@ -964,15 +742,11 @@ def print_register(transactions : Array(Transaction), filters : Array(String), c
         balance_str = balance.to_f(DISPLAY_PRECISION)
         running_str = running_balance.to_f(DISPLAY_PRECISION)
 
-        printf(
-          format_str,
-          transaction.date.to_s(TRANSACTION_DATE_FORMAT),
-          transaction.payee[0, col1width],
-          account_change.name[0, col2width],
-          balance_str,
-          running_str
-        )
-        puts ""
+        puts "#{transaction.date.to_s(TRANSACTION_DATE_FORMAT)}".ljust(10) +
+             " #{transaction.payee[0, col1width]}".ljust(col1width + 1) +
+             " #{account_change.name[0, col2width]}".ljust(col2width + 1) +
+             " #{balance_str.rjust(10)}" +
+             " #{running_str.rjust(10)}"
       end
     end
   end
@@ -1010,6 +784,245 @@ def show_usage
   puts "  ./ledger -f Journal.txt --period=Monthly reg"
   puts "  ./ledger -f Journal.txt stats"
   puts "  cat Journal.txt | ./ledger -f - bal"
+end
+
+def process_includes(content : String, base_file : String) : String
+  lines = content.lines
+  result = [] of String
+  base_dir = File.dirname(base_file)
+  
+  lines.each do |line|
+    line_stripped = line.strip
+    
+    if line_stripped =~ /^(include|!include)\s+["\']?(.+?)["\']?\s*$/i
+      included_file = $2.strip
+      
+      # Check if path is absolute (starts with / or contains drive letter on Windows)
+      if included_file.starts_with?('/') || included_file.starts_with?(/^[A-Za-z]:/)
+        included_path = included_file
+      else
+        included_path = File.join(base_dir, included_file)
+      end
+      
+      begin
+        included_content = File.read(included_path)
+        included_processed = process_includes(included_content, included_path)
+        result << included_processed.rstrip("\n")
+      rescue e
+        raise "Could not read included file '#{included_file}': #{e.message}"
+      end
+    else
+      result << line
+    end
+  end
+  
+  result.join("\n")
+end
+
+def main
+  file = ""
+  command = ""
+  filters = [] of String
+  start_date = "1970/01/01"
+  end_date = ""
+  period = ""
+  payee = ""
+  empty = false
+  depth = -1
+  columns = 79
+  wide = false
+
+  i = 0
+  while i < ARGV.size
+    arg = ARGV[i]
+    
+    case arg
+    when "-f"
+      file = ARGV[i + 1] if i + 1 < ARGV.size
+      i += 1
+    when "-b"
+      start_date = ARGV[i + 1] if i + 1 < ARGV.size
+      i += 1
+    when "-e"
+      end_date = ARGV[i + 1] if i + 1 < ARGV.size
+      i += 1
+    when "--period"
+      period = ARGV[i + 1] if i + 1 < ARGV.size
+      i += 1
+    when "--payee"
+      payee = ARGV[i + 1] if i + 1 < ARGV.size
+      i += 1
+    when "--empty"
+      empty = true
+    when "--depth"
+      depth = ARGV[i + 1].to_i if i + 1 < ARGV.size
+      i += 1
+    when "--columns"
+      columns = ARGV[i + 1].to_i if i + 1 < ARGV.size
+      i += 1
+    when "--wide"
+      wide = true
+    when "--help"
+      show_usage
+      return
+    else
+      if arg.starts_with?("-")
+        STDERR.puts "Unknown option: #{arg}"
+        show_usage
+        exit(1)
+      elsif command.empty?
+        command = arg
+      else
+        filters << arg
+      end
+    end
+    
+    i += 1
+  end
+
+  columns = 132 if wide
+
+  if file.empty?
+    STDERR.puts "Error: Ledger file required (-f option)"
+    show_usage
+    exit(1)
+  end
+
+  if command.empty?
+    STDERR.puts "Error: Command required"
+    show_usage
+    exit(1)
+  end
+
+  if end_date.empty?
+    now = Time.utc
+    end_date = now.to_s(TRANSACTION_DATE_FORMAT)
+  end
+
+  begin
+    content = file == "-" ? STDIN.gets_to_end : File.read(file)
+    
+    # Process includes
+    content = process_includes(content, file)
+    
+    transactions = Parser.parse_ledger(content)
+    
+    start_time = Time.parse_utc(start_date, TRANSACTION_DATE_FORMAT)
+    end_time = Time.parse_utc(end_date, TRANSACTION_DATE_FORMAT)
+    transactions = transactions.select { |t| t.date >= start_time && t.date <= end_time }
+    
+    unless payee.empty?
+      transactions = transactions.select { |t| t.payee.downcase.includes?(payee.downcase) }
+    end
+    
+    case command
+    when "balance", "bal"
+      if period.empty?
+        balances = Ledger.get_balances(transactions, filters)
+        print_balances(balances, columns, empty, depth)
+      else
+        ranges = Ledger.balances_by_period(transactions, period, Ledger::RANGE_PARTITION)
+        ranges.each_with_index do |range, idx|
+          puts "\n" + "=" * columns if idx > 0
+          puts "#{range[:start].to_s(TRANSACTION_DATE_FORMAT)} - #{range[:end].to_s(TRANSACTION_DATE_FORMAT)}"
+          puts "=" * columns
+          print_balances(range[:balances], columns, empty, depth)
+        end
+      end
+    when "print"
+      transactions.each do |transaction|
+        in_filter = filters.empty?
+        unless in_filter
+          transaction.accountChanges.each do |account_change|
+            filters.each do |filter|
+              if account_change.name.includes?(filter)
+                in_filter = true
+                break
+              end
+            end
+            break if in_filter
+          end
+        end
+        print_transaction(transaction, columns) if in_filter
+      end
+    when "register", "reg"
+      if period.empty?
+        print_register(transactions, filters, columns)
+      else
+        ranges = Ledger.transactions_by_period(transactions, period)
+        ranges.each_with_index do |range, idx|
+          puts "=" * columns if idx > 0
+          puts "#{range[:start].to_s(TRANSACTION_DATE_FORMAT)} - #{range[:end].to_s(TRANSACTION_DATE_FORMAT)}"
+          puts "=" * columns
+          print_register(range[:transactions], filters, columns)
+        end
+      end
+    when "stats"
+      if transactions.empty?
+        puts "Empty ledger."
+      else
+        start_d = transactions[0].date
+        end_d = transactions.last.date
+        days = (end_d - start_d).total_days.to_i
+        
+        period_string = format_duration(days)
+        trans_per_day = days > 0 ? transactions.size.to_f / days : transactions.size.to_f
+
+        payees = {} of String => Bool
+        accounts = {} of String => Bool
+        postings = 0
+        last_date = nil
+
+        transactions.each do |transaction|
+          payees[transaction.payee] = true
+          transaction.accountChanges.each do |account_change|
+            accounts[account_change.name] = true
+            postings += 1
+          end
+          last_date = transaction.date
+        end
+
+        now = Time.utc
+        last_midnight = Time.utc(last_date.not_nil!.year, last_date.not_nil!.month, last_date.not_nil!.day, 0, 0, 0)
+        seconds_since_last = (now - last_midnight).total_seconds.to_i
+        hours_since_last = seconds_since_last // 3600
+        hours_since_last += 1 if (seconds_since_last % 3600) > 0
+
+        days_since_last = hours_since_last // 24
+        time_since_last_post = format_duration(days_since_last)
+
+        postings_per_day = days > 0 ? postings.to_f / days : postings.to_f
+
+        puts "Time period               : #{start_d.to_s("%Y-%m-%d")} to #{end_d.to_s("%Y-%m-%d")} (#{period_string})"
+        puts "Unique payees             : #{payees.size}"
+        puts "Unique accounts           : #{accounts.size}"
+        puts "Number of transactions    : #{transactions.size} (#{"%.1f" % trans_per_day} per day)"
+        puts "Number of postings        : #{postings} (#{"%.1f" % postings_per_day} per day)"
+        puts "Time since last post      : #{time_since_last_post}"
+      end
+    when "accounts"
+      all_accounts = {} of String => Bool
+      transactions.each do |transaction|
+        transaction.accountChanges.each do |account_change|
+          all_accounts[account_change.name] = true
+        end
+      end
+      puts "Accounts in ledger:"
+      puts "-" * columns
+      all_accounts.keys.sort.each do |account|
+        puts account
+      end
+      puts "-" * columns
+      printf("Total: %d accounts\n", all_accounts.size)
+    else
+      STDERR.puts "Command '#{command}' not implemented."
+      show_usage
+      exit(1)
+    end
+  rescue e
+    STDERR.puts "Error: #{e.message}"
+    exit(1)
+  end
 end
 
 # Main execution
