@@ -67,15 +67,23 @@ class LedgerCLI
             throw new \RuntimeException("File '$filepath' not found");
         }
 
+        // Get real path to normalize and detect circular includes
+        $realPath = realpath($filepath);
+        if ($realPath === false) {
+            $realPath = $filepath;
+        }
+
         $content = file_get_contents($filepath);
         if ($content === false) {
             throw new \RuntimeException("Could not read file '$filepath'");
         }
 
-        return $this->processIncludes($content, dirname($filepath));
+        // Process includes with circular reference detection
+        $processedFiles = [$realPath];
+        return $this->processIncludes($content, dirname($filepath), $processedFiles);
     }
 
-    private function processIncludes(string $content, string $baseDir): string
+    private function processIncludes(string $content, string $baseDir, array &$processedFiles = []): string
     {
         $lines = explode("\n", $content);
         $result = [];
@@ -83,10 +91,23 @@ class LedgerCLI
         foreach ($lines as $line) {
             $trimmedLine = trim($line);
             
+            // Check if it's an include line
             if (preg_match('/^(include|!include)\s+["\']?(.+?)["\']?\s*$/i', $trimmedLine, $matches)) {
                 $includedFile = trim($matches[2]);
                 $includedPath = $this->resolvePath($includedFile, $baseDir);
                 
+                // Normalize path to detect duplicates
+                $normalizedPath = realpath($includedPath);
+                if ($normalizedPath === false) {
+                    $normalizedPath = $includedPath;
+                }
+                
+                // Check for circular includes to prevent infinite recursion and duplication
+                if (in_array($normalizedPath, $processedFiles)) {
+                    continue; // Skip already processed file
+                }
+                
+                // Check if file exists
                 if (!file_exists($includedPath)) {
                     throw new \RuntimeException("Included file '$includedFile' not found (looking in: $includedPath)");
                 }
@@ -96,11 +117,18 @@ class LedgerCLI
                     throw new \RuntimeException("Could not read included file '$includedFile'");
                 }
                 
-                $includedProcessed = $this->processIncludes($includedContent, dirname($includedPath));
+                // Mark this file as processed
+                $processedFiles[] = $normalizedPath;
+                
+                // Recursively process includes within the included file
+                $includedProcessed = $this->processIncludes($includedContent, dirname($includedPath), $processedFiles);
+                
+                // Add the processed content (without the include line)
                 $includedProcessed = trim($includedProcessed, "\n");
                 if (!empty($includedProcessed)) {
                     $result[] = $includedProcessed;
                 }
+                // IMPORTANT: Do NOT add the original include line
             } else {
                 $result[] = $line;
             }
@@ -111,9 +139,12 @@ class LedgerCLI
 
     private function resolvePath(string $path, string $baseDir): string
     {
+        // If absolute path, return as is
         if (preg_match('/^(\/|\\\\|[A-Za-z]:)/', $path)) {
             return $path;
         }
+        
+        // Otherwise, resolve as relative path
         return rtrim($baseDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $path;
     }
 
@@ -276,45 +307,67 @@ class LedgerCLI
             $accountBalances[$account->name] = $account->balance;
         }
         
-        // Build parent sums from leaf accounts only
-        // A leaf account is one that has no other account with it as a prefix
+        // Build a set of all account names for quick lookup
+        $allAccountNames = array_keys($accountBalances);
+        
+        // Identify leaf accounts (accounts that have NO children in the account list)
         $leafAccounts = [];
         foreach ($accountBalances as $name => $balance) {
-            $isLeaf = true;
-            foreach ($accountBalances as $otherName => $otherBalance) {
+            $hasChild = false;
+            foreach ($allAccountNames as $otherName) {
                 if ($otherName !== $name && strpos($otherName, $name . ':') === 0) {
-                    $isLeaf = false;
+                    $hasChild = true;
                     break;
                 }
             }
-            if ($isLeaf) {
+            // Only include as leaf if it has no children
+            if (!$hasChild) {
                 $leafAccounts[$name] = $balance;
             }
         }
         
-        // Calculate parent balances by summing leaf descendants
-        $hierarchyBalances = [];
-        foreach ($leafAccounts as $leafName => $leafBalance) {
-            $parts = explode(':', $leafName);
-            
-            // Add the leaf itself
-            if (!isset($hierarchyBalances[$leafName])) {
-                $hierarchyBalances[$leafName] = SimpleRational::zero();
-            }
-            $hierarchyBalances[$leafName] = $hierarchyBalances[$leafName]->plus($leafBalance);
-            
-            // Add to all parents
-            for ($i = 1; $i <= count($parts); $i++) {
-                $parentName = implode(':', array_slice($parts, 0, $i));
-                if (!isset($hierarchyBalances[$parentName])) {
-                    $hierarchyBalances[$parentName] = SimpleRational::zero();
+        // Also include accounts that have direct balances but are not leaves
+        // (accounts that have both direct postings AND children)
+        $directOnlyAccounts = [];
+        foreach ($accountBalances as $name => $balance) {
+            $hasChild = false;
+            foreach ($allAccountNames as $otherName) {
+                if ($otherName !== $name && strpos($otherName, $name . ':') === 0) {
+                    $hasChild = true;
+                    break;
                 }
-                $hierarchyBalances[$parentName] = $hierarchyBalances[$parentName]->plus($leafBalance);
+            }
+            if ($hasChild && $balance->sign() != 0) {
+                $directOnlyAccounts[$name] = $balance;
             }
         }
         
-        // Also include any accounts that have direct balances but are not leaves
-        // (accounts that have both direct postings AND children)
+        // Calculate parent balances by summing leaf descendants ONLY
+        $hierarchyBalances = [];
+        
+        // First, add all leaf balances
+        foreach ($leafAccounts as $leafName => $leafBalance) {
+            $parts = explode(':', $leafName);
+            
+            // Add to all ancestors including itself
+            for ($i = 1; $i <= count($parts); $i++) {
+                $ancestorName = implode(':', array_slice($parts, 0, $i));
+                if (!isset($hierarchyBalances[$ancestorName])) {
+                    $hierarchyBalances[$ancestorName] = SimpleRational::zero();
+                }
+                $hierarchyBalances[$ancestorName] = $hierarchyBalances[$ancestorName]->plus($leafBalance);
+            }
+        }
+        
+        // Then add direct balances for accounts that have both direct and children
+        foreach ($directOnlyAccounts as $name => $balance) {
+            if (!isset($hierarchyBalances[$name])) {
+                $hierarchyBalances[$name] = SimpleRational::zero();
+            }
+            $hierarchyBalances[$name] = $hierarchyBalances[$name]->plus($balance);
+        }
+        
+        // Also include any accounts that have direct balances but no children and weren't in leaf
         foreach ($accountBalances as $name => $balance) {
             if (!isset($hierarchyBalances[$name])) {
                 $hierarchyBalances[$name] = $balance;
@@ -332,19 +385,18 @@ class LedgerCLI
             }
         }
         
-        // Sort by name
-        ksort($displayBalances);
-        
-        // Sort hierarchically (parents before children)
+        // Sort by root account first, then by name
         $sortedNames = array_keys($displayBalances);
         usort($sortedNames, function($a, $b) {
             $partsA = explode(':', $a);
             $partsB = explode(':', $b);
-            for ($i = 0; $i < min(count($partsA), count($partsB)); $i++) {
-                $cmp = strcmp($partsA[$i], $partsB[$i]);
-                if ($cmp !== 0) return $cmp;
+            // First compare by root account
+            $rootCmp = strcmp($partsA[0], $partsB[0]);
+            if ($rootCmp !== 0) {
+                return $rootCmp;
             }
-            return count($partsA) - count($partsB);
+            // Then compare full names
+            return strcmp($a, $b);
         });
         
         // Calculate overall total
