@@ -90,20 +90,39 @@ end_date = nil
 payee_filter = ""
 columns = 79
 
-ARGV.each_with_index do |arg, idx|
-  if arg == "-f"
-    file = ARGV[idx + 1] if idx + 1 < ARGV.size
-  elsif arg == "-b"
-    start_date = ARGV[idx + 1] if idx + 1 < ARGV.size
-  elsif arg == "-e"
-    end_date = ARGV[idx + 1] if idx + 1 < ARGV.size
-  elsif arg == "--payee"
-    payee_filter = ARGV[idx + 1] if idx + 1 < ARGV.size
-  elsif arg == "--columns"
-    columns = ARGV[idx + 1].to_i if idx + 1 < ARGV.size
-  elsif arg == "--help" || arg == "-h"
+i = 0
+while i < ARGV.size
+  arg = ARGV[i]
+  
+  case arg
+  when "-f"
+    if i + 1 < ARGV.size
+      file = ARGV[i + 1]
+      i += 1
+    end
+  when "-b"
+    if i + 1 < ARGV.size
+      start_date = ARGV[i + 1]
+      i += 1
+    end
+  when "-e"
+    if i + 1 < ARGV.size
+      end_date = ARGV[i + 1]
+      i += 1
+    end
+  when "--payee"
+    if i + 1 < ARGV.size
+      payee_filter = ARGV[i + 1]
+      i += 1
+    end
+  when "--columns"
+    if i + 1 < ARGV.size
+      columns = ARGV[i + 1].to_i
+      i += 1
+    end
+  when "--help", "-h"
     puts "Equity - Opening Balance Transaction Generator"
-    puts "============================================="
+    puts "=============================================="
     puts
     puts "Usage: crystal equity.cr [OPTIONS]"
     puts
@@ -119,7 +138,11 @@ ARGV.each_with_index do |arg, idx|
     puts "  Generates an 'Opening Balances' transaction with accumulated balances"
     puts "  from all transactions in the specified period."
     exit
+  else
+    # Ignore unknown arguments
   end
+  
+  i += 1
 end
 
 if file.nil?
@@ -147,7 +170,12 @@ if end_date.nil?
 end
 
 begin
-  content = File.read(file)
+  # Handle stdin with -f -
+  content = if file == "-"
+    STDIN.gets_to_end
+  else
+    File.read(file)
+  end
 rescue e
   puts "Error: #{e.message}"
   exit
