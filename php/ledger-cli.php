@@ -41,9 +41,15 @@ class LedgerCLI
         }
 
         try {
-            $content = $this->options['f'] === '-'
-                ? file_get_contents('php://stdin')
-                : $this->readLedgerFile($this->options['f']);
+            // Handle stdin with -f -
+            if ($this->options['f'] === '-') {
+                $content = file_get_contents('php://stdin');
+                if ($content === false) {
+                    throw new \RuntimeException("Could not read from stdin");
+                }
+            } else {
+                $content = $this->readLedgerFile($this->options['f']);
+            }
 
             if ($content === false) {
                 throw new \RuntimeException("Could not read file");
@@ -156,6 +162,7 @@ class LedgerCLI
         for ($i = 1; $i < count($argv); $i++) {
             $arg = $argv[$i];
 
+            // Handle --option=value or --option
             if (strpos($arg, '--') === 0) {
                 $parts = explode('=', substr($arg, 2), 2);
                 $key = $parts[0];
@@ -167,15 +174,40 @@ class LedgerCLI
                 }
 
                 $options[$key] = $value;
-            } elseif (strpos($arg, '-') === 0) {
-                $key = $arg[1];
-                if (isset($argv[$i + 1]) && strpos($argv[$i + 1], '-') !== 0) {
-                    $options[$key] = $argv[$i + 1];
-                    $i++;
-                } else {
-                    $options[$key] = true;
-                }
-            } else {
+            }
+            // Handle -f - (dash as value for stdin)
+            elseif ($arg === '-f' && isset($argv[$i + 1]) && $argv[$i + 1] === '-') {
+                $options['f'] = '-';
+                $i++; // Skip the next argument which is '-'
+            }
+            // Handle -f file
+            elseif ($arg === '-f' && isset($argv[$i + 1])) {
+                $options['f'] = $argv[$i + 1];
+                $i++;
+            }
+            // Handle -b date, -e date, --period period, --payee payee, --depth N, --columns N
+            elseif (preg_match('/^-([bep])$/', $arg, $matches) && isset($argv[$i + 1])) {
+                $key = $matches[1];
+                $options[$key] = $argv[$i + 1];
+                $i++;
+            }
+            // Handle --period, --payee, --depth, --columns with value
+            elseif (in_array($arg, ['--period', '--payee', '--depth', '--columns']) && isset($argv[$i + 1])) {
+                $key = substr($arg, 2);
+                $options[$key] = $argv[$i + 1];
+                $i++;
+            }
+            // Handle flags without value: --empty, --wide, --help
+            elseif (in_array($arg, ['--empty', '--wide', '--help'])) {
+                $key = substr($arg, 2);
+                $options[$key] = true;
+            }
+            // Handle single letter flags: -e (end date with default), --help already handled
+            elseif (preg_match('/^-([ew])$/', $arg, $matches)) {
+                $key = $matches[1];
+                $options[$key] = true;
+            }
+            else {
                 $args[] = $arg;
             }
         }
