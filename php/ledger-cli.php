@@ -72,7 +72,6 @@ class LedgerCLI
             throw new \RuntimeException("Could not read file '$filepath'");
         }
 
-        // Process includes
         return $this->processIncludes($content, dirname($filepath));
     }
 
@@ -84,12 +83,10 @@ class LedgerCLI
         foreach ($lines as $line) {
             $trimmedLine = trim($line);
             
-            // Check if it's an include line
             if (preg_match('/^(include|!include)\s+["\']?(.+?)["\']?\s*$/i', $trimmedLine, $matches)) {
                 $includedFile = trim($matches[2]);
                 $includedPath = $this->resolvePath($includedFile, $baseDir);
                 
-                // Read the included file
                 if (!file_exists($includedPath)) {
                     throw new \RuntimeException("Included file '$includedFile' not found (looking in: $includedPath)");
                 }
@@ -99,10 +96,7 @@ class LedgerCLI
                     throw new \RuntimeException("Could not read included file '$includedFile'");
                 }
                 
-                // Recursively process any includes within the included file
                 $includedProcessed = $this->processIncludes($includedContent, dirname($includedPath));
-                
-                // Add without extra empty line
                 $includedProcessed = trim($includedProcessed, "\n");
                 if (!empty($includedProcessed)) {
                     $result[] = $includedProcessed;
@@ -117,12 +111,9 @@ class LedgerCLI
 
     private function resolvePath(string $path, string $baseDir): string
     {
-        // If absolute path, return as is
         if (preg_match('/^(\/|\\\\|[A-Za-z]:)/', $path)) {
             return $path;
         }
-        
-        // Otherwise, resolve as relative path
         return rtrim($baseDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $path;
     }
 
@@ -221,24 +212,19 @@ class LedgerCLI
             case 'bal':
                 $this->handleBalance($transactions);
                 break;
-
             case 'print':
                 $this->handlePrint($transactions);
                 break;
-
             case 'register':
             case 'reg':
                 $this->handleRegister($transactions);
                 break;
-
             case 'stats':
                 $this->handleStats($transactions);
                 break;
-
             case 'accounts':
                 $this->handleAccounts($transactions);
                 break;
-
             default:
                 echo "Command '{$this->command}' not implemented.\n";
                 $this->showUsage();
@@ -276,86 +262,89 @@ class LedgerCLI
         }
     }
 
+    /**
+     * CORRECTED: Simple accumulation by building parent sums from leaf accounts
+     */
     private function printBalances(array $balances): void
     {
         $maxDepth = $this->options['depth'] >= 0 ? $this->options['depth'] : PHP_INT_MAX;
         $showEmpty = $this->options['empty'];
         
-        // Organize accounts by name
-        usort($balances, function ($a, $b) {
-            return strcmp($a->name, $b->name);
-        });
-        
-        // Build complete hierarchy with ALL accounts and their parents
-        $allAccounts = [];
-        
+        // First, build a map of all account balances
+        $accountBalances = [];
         foreach ($balances as $account) {
-            $accountName = $account->name;
-            $parts = explode(':', $accountName);
-            
-            // Add the leaf account
-            if (!isset($allAccounts[$accountName])) {
-                $allAccounts[$accountName] = SimpleRational::zero();
+            $accountBalances[$account->name] = $account->balance;
+        }
+        
+        // Build parent sums from leaf accounts only
+        // A leaf account is one that has no other account with it as a prefix
+        $leafAccounts = [];
+        foreach ($accountBalances as $name => $balance) {
+            $isLeaf = true;
+            foreach ($accountBalances as $otherName => $otherBalance) {
+                if ($otherName !== $name && strpos($otherName, $name . ':') === 0) {
+                    $isLeaf = false;
+                    break;
+                }
             }
-            $allAccounts[$accountName] = $allAccounts[$accountName]->plus($account->balance);
+            if ($isLeaf) {
+                $leafAccounts[$name] = $balance;
+            }
+        }
+        
+        // Calculate parent balances by summing leaf descendants
+        $hierarchyBalances = [];
+        foreach ($leafAccounts as $leafName => $leafBalance) {
+            $parts = explode(':', $leafName);
             
-            // Add all parent accounts along the path
-            for ($i = 1; $i < count($parts); $i++) {
+            // Add the leaf itself
+            if (!isset($hierarchyBalances[$leafName])) {
+                $hierarchyBalances[$leafName] = SimpleRational::zero();
+            }
+            $hierarchyBalances[$leafName] = $hierarchyBalances[$leafName]->plus($leafBalance);
+            
+            // Add to all parents
+            for ($i = 1; $i <= count($parts); $i++) {
                 $parentName = implode(':', array_slice($parts, 0, $i));
-                if (!isset($allAccounts[$parentName])) {
-                    $allAccounts[$parentName] = SimpleRational::zero();
+                if (!isset($hierarchyBalances[$parentName])) {
+                    $hierarchyBalances[$parentName] = SimpleRational::zero();
                 }
-                // Parents accumulate balances from all children
-                $allAccounts[$parentName] = $allAccounts[$parentName]->plus($account->balance);
+                $hierarchyBalances[$parentName] = $hierarchyBalances[$parentName]->plus($leafBalance);
             }
         }
         
-        // Apply depth limit
-        $displayAccounts = [];
-        
-        foreach ($allAccounts as $accountName => $balance) {
-            $parts = explode(':', $accountName);
-            $depth = count($parts);
-            
-            if ($maxDepth < 0 || $depth <= $maxDepth) {
-                // Keep account as is
-                $displayAccounts[$accountName] = $balance;
-            } else {
-                // Consolidate to parent at maxDepth
-                $parentName = implode(':', array_slice($parts, 0, $maxDepth));
-                
-                if (!isset($displayAccounts[$parentName])) {
-                    $displayAccounts[$parentName] = SimpleRational::zero();
-                }
-                $displayAccounts[$parentName] = $displayAccounts[$parentName]->plus($balance);
+        // Also include any accounts that have direct balances but are not leaves
+        // (accounts that have both direct postings AND children)
+        foreach ($accountBalances as $name => $balance) {
+            if (!isset($hierarchyBalances[$name])) {
+                $hierarchyBalances[$name] = $balance;
             }
         }
         
-        // Filter zero balance accounts if --empty is not enabled
-        $filtered = [];
-        foreach ($displayAccounts as $accountName => $balance) {
-            if ($showEmpty || $balance->sign() != 0) {
-                $filtered[] = [
-                    'name' => $accountName,
-                    'balance' => $balance,
-                    'parts' => explode(':', $accountName),
-                    'depth' => count(explode(':', $accountName))
-                ];
+        // Apply depth filter
+        $displayBalances = [];
+        foreach ($hierarchyBalances as $name => $balance) {
+            $depth = substr_count($name, ':') + 1;
+            if ($depth <= $maxDepth) {
+                if ($showEmpty || $balance->sign() != 0) {
+                    $displayBalances[$name] = $balance;
+                }
             }
         }
         
-        // Sort hierarchically
-        usort($filtered, function ($a, $b) {
-            // Compare each part of the hierarchy
-            for ($i = 0; $i < min(count($a['parts']), count($b['parts'])); $i++) {
-                $cmp = strcmp($a['parts'][$i], $b['parts'][$i]);
-                if ($cmp !== 0) {
-                    return $cmp;
-                }
+        // Sort by name
+        ksort($displayBalances);
+        
+        // Sort hierarchically (parents before children)
+        $sortedNames = array_keys($displayBalances);
+        usort($sortedNames, function($a, $b) {
+            $partsA = explode(':', $a);
+            $partsB = explode(':', $b);
+            for ($i = 0; $i < min(count($partsA), count($partsB)); $i++) {
+                $cmp = strcmp($partsA[$i], $partsB[$i]);
+                if ($cmp !== 0) return $cmp;
             }
-            
-            // If one is parent of the other, parent comes first
-            return count($a['parts']) - count($b['parts']);
+            return count($partsA) - count($partsB);
         });
         
         // Calculate overall total
@@ -364,17 +353,16 @@ class LedgerCLI
             $overallBalance = $overallBalance->plus($account->balance);
         }
         
-        // Display accounts
-        foreach ($filtered as $item) {
-            $balanceStr = $item['balance']->toFloat(DISPLAY_PRECISION);
-            $spaces = $this->options['columns'] - strlen($item['name']) - strlen($balanceStr);
-            if ($spaces < 0) {
-                $spaces = 0;
-            }
-            echo $item['name'] . str_repeat(' ', $spaces) . $balanceStr . "\n";
+        // Print balances
+        foreach ($sortedNames as $name) {
+            $balance = $displayBalances[$name];
+            $balanceStr = $balance->toFloat(DISPLAY_PRECISION);
+            $spaces = $this->options['columns'] - strlen($name) - strlen($balanceStr);
+            if ($spaces < 0) $spaces = 0;
+            echo $name . str_repeat(' ', $spaces) . $balanceStr . "\n";
         }
         
-        if (!empty($filtered)) {
+        if (!empty($sortedNames)) {
             echo str_repeat('-', $this->options['columns']) . "\n";
             $balanceStr = $overallBalance->toFloat(DISPLAY_PRECISION);
             $spaces = $this->options['columns'] - strlen($balanceStr);
@@ -413,7 +401,6 @@ class LedgerCLI
         echo $transaction->date->format(TRANSACTION_DATE_FORMAT)
              . " " . $transaction->payee . "\n";
 
-        // Find maximum account name length in this transaction
         $maxNameLength = 0;
         foreach ($transaction->accountChanges as $accountChange) {
             $nameLength = strlen($accountChange->name);
@@ -422,13 +409,10 @@ class LedgerCLI
             }
         }
 
-        // Define column for values (right align)
-        // Use 60% of available width for names, rest for values
-        $availableWidth = $this->options['columns'] - 4; // 4 spaces indent
-        $valueWidth = 12; // Width for values (10 digits + 2 spaces)
+        $availableWidth = $this->options['columns'] - 4;
+        $valueWidth = 12;
         $nameColumn = min($maxNameLength + 4, $availableWidth - $valueWidth);
 
-        // If column is too wide, limit it
         if ($nameColumn > 50) {
             $nameColumn = 50;
         }
@@ -442,16 +426,14 @@ class LedgerCLI
                 $name = $accountChange->name;
                 $nameLength = strlen($name);
 
-                // If name is too long, truncate
                 if ($nameLength > $nameColumn - 4) {
-                    $maxDisplayLength = $nameColumn - 7; // Leave space for "..."
+                    $maxDisplayLength = $nameColumn - 7;
                     if ($maxDisplayLength > 10) {
                         $name = substr($name, 0, $maxDisplayLength) . '...';
                         $nameLength = strlen($name);
                     }
                 }
 
-                // Calculate spaces to right align the value
                 $totalSpaces = $availableWidth - $nameLength - strlen($balanceStr);
                 if ($totalSpaces < 2) {
                     $totalSpaces = 2;
@@ -542,9 +524,6 @@ class LedgerCLI
         }
     }
 
-    /**
-     * Format duration as years, weeks and days (like Go)
-     */
     private function formatDuration(int $days): string
     {
         if ($days === 0) {
@@ -584,23 +563,15 @@ class LedgerCLI
         $startDate = $transactions[0]->date;
         $endDate = end($transactions)->date;
         
-        // Calculate days difference
         $interval = $endDate->diff($startDate);
         $days = $interval->days;
         
-        // Format period as years, weeks and days (like Go)
         $periodString = $this->formatDuration($days);
-        
-        // Calculate transactions per day
         $transPerDay = $days > 0 ? count($transactions) / $days : count($transactions);
         
-        // Count unique payees
         $payees = [];
-        // Count unique accounts
         $accounts = [];
-        // Count postings
         $postings = 0;
-        // Date of last transaction
         $lastDate = null;
         
         foreach ($transactions as $transaction) {
@@ -612,56 +583,27 @@ class LedgerCLI
             $lastDate = $transaction->date;
         }
         
-        // Calculate time since last post
-        // ledger.go counts from midnight of the last transaction date
-        // until current time (probably UTC)
-        
         $now = new DateTime('now', new DateTimeZone('UTC'));
         
-        // Last transaction: midnight of the date (00:00:00)
         $lastMidnight = clone $lastDate;
         $lastMidnight->setTime(0, 0, 0);
         $lastMidnight->setTimezone(new DateTimeZone('UTC'));
         
-        // Calculate difference in hours
         $intervalSinceLast = $now->diff($lastMidnight);
-        
         $hoursSinceLast = $intervalSinceLast->days * 24 + $intervalSinceLast->h;
         
-        // Add extra hour if minutes > 0
         if ($intervalSinceLast->i > 0 || $intervalSinceLast->s > 0) {
             $hoursSinceLast += 1;
         }
         
-        // For debugging - show values
-        /*
-        echo "Debug: Last date: " . $lastDate->format('Y-m-d H:i:s') . "\n";
-        echo "Debug: Last midnight (UTC): " . $lastMidnight->format('Y-m-d H:i:s') . "\n";
-        echo "Debug: Now (UTC): " . $now->format('Y-m-d H:i:s') . "\n";
-        echo "Debug: Hours since last: $hoursSinceLast\n";
-        */
-        
-        // Calculate days since last post
         $daysSinceLast = (int)($hoursSinceLast / 24);
-        
-        // Format time since last post as years, weeks and days (like Go)
         $timeSinceLastPost = $this->formatDuration($daysSinceLast);
         
-        // If still showing 0, force calculation based on UTC
-        // For 13:21 local (10:21 UTC) and last transaction 2026-01-19
-        // Difference: ~10 hours from 2026-01-19 until now
-        
-        // Let's calculate manually based on your time
-        // If you're in GMT-3 (13:21) = 16:21 UTC
-        // Since midnight of 2026-01-19 UTC = ~16 hours
         if ($hoursSinceLast === 0) {
-            // Force calculation based on GMT-3 to UTC
             $nowUTC = new DateTime('now', new DateTimeZone('UTC'));
             $currentHourUTC = (int)$nowUTC->format('H');
             
-            // If testing with future date (2026), adjust
             if ($lastDate->format('Y') > date('Y')) {
-                // For future dates, use current UTC hour
                 $daysSinceLast = (int)($currentHourUTC / 24);
                 $timeSinceLastPost = $this->formatDuration($daysSinceLast);
             } else if ($currentHourUTC >= 16) {
@@ -673,10 +615,8 @@ class LedgerCLI
             }
         }
         
-        // Calculate postings per day
         $postingsPerDay = $days > 0 ? $postings / $days : $postings;
         
-        // Print statistics
         echo "Time period               : " . $startDate->format('Y-m-d') . " to " . $endDate->format('Y-m-d') . " ($periodString)\n";
         echo "Unique payees             : " . count($payees) . "\n";
         echo "Unique accounts           : " . count($accounts) . "\n";
