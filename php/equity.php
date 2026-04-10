@@ -64,16 +64,23 @@ class EquityCLI
             throw new \RuntimeException("File '$filepath' not found");
         }
         
+        // Get real path to normalize and detect circular includes
+        $realPath = realpath($filepath);
+        if ($realPath === false) {
+            $realPath = $filepath;
+        }
+        
         $content = file_get_contents($filepath);
         if ($content === false) {
             throw new \RuntimeException("Could not read file '$filepath'");
         }
         
-        // Process includes
-        return $this->processIncludes($content, dirname($filepath));
+        // Process includes with circular reference detection
+        $processedFiles = [$realPath];
+        return $this->processIncludes($content, dirname($filepath), $processedFiles);
     }
     
-    private function processIncludes(string $content, string $baseDir): string
+    private function processIncludes(string $content, string $baseDir, array &$processedFiles = []): string
     {
         $lines = explode("\n", $content);
         $result = [];
@@ -86,7 +93,18 @@ class EquityCLI
                 $includedFile = trim($matches[2]);
                 $includedPath = $this->resolvePath($includedFile, $baseDir);
                 
-                // Read the included file
+                // Normalize path to detect duplicates
+                $normalizedPath = realpath($includedPath);
+                if ($normalizedPath === false) {
+                    $normalizedPath = $includedPath;
+                }
+                
+                // Check for circular includes to prevent infinite recursion and duplication
+                if (in_array($normalizedPath, $processedFiles)) {
+                    continue; // Skip already processed file
+                }
+                
+                // Check if file exists
                 if (!file_exists($includedPath)) {
                     throw new \RuntimeException("Included file '$includedFile' not found (looking in: $includedPath)");
                 }
@@ -96,14 +114,18 @@ class EquityCLI
                     throw new \RuntimeException("Could not read included file '$includedFile'");
                 }
                 
-                // Recursively process any includes within the included file
-                $includedProcessed = $this->processIncludes($includedContent, dirname($includedPath));
+                // Mark this file as processed
+                $processedFiles[] = $normalizedPath;
                 
-                // Add without extra empty line
+                // Recursively process includes within the included file
+                $includedProcessed = $this->processIncludes($includedContent, dirname($includedPath), $processedFiles);
+                
+                // Add the processed content (without the include line)
                 $includedProcessed = trim($includedProcessed, "\n");
                 if (!empty($includedProcessed)) {
                     $result[] = $includedProcessed;
                 }
+                // IMPORTANT: Do NOT add the original include line
             } else {
                 $result[] = $line;
             }
@@ -188,7 +210,7 @@ class EquityCLI
             echo "Payee filter: '" . $this->options['payee'] . "'\n\n";
         }
         
-        // Sort transactions by date
+        // Sort transactions by date (as Go assumes)
         usort($transactions, function($a, $b) {
             return $a->date <=> $b->date;
         });
@@ -206,11 +228,35 @@ class EquityCLI
             echo "Parsed end date: " . $end->format('Y/m/d H:i:s') . "\n\n";
         }
         
-        // Filter by date range
-        $filtered = array_filter($transactions, function($transaction) use ($start, $end) {
-            return $transaction->date >= $start && $transaction->date <= $end;
-        });
-        $filtered = array_values($filtered);
+        // Implement EXACTLY the same logic as Go:
+        // 1. Find first index where Date > StartDate (After())
+        $startIndex = 0;
+        for ($i = 0; $i < count($transactions); $i++) {
+            if ($transactions[$i]->date > $start) { // After() in Go
+                $startIndex = $i;
+                break;
+            }
+        }
+        
+        // 2. Find last index where Date < EndDate (Before())
+        $endIndex = count($transactions) - 1;
+        for ($i = count($transactions) - 1; $i >= 0; $i--) {
+            if ($transactions[$i]->date < $end) { // Before() in Go
+                $endIndex = $i;
+                break;
+            }
+        }
+        
+        if ($this->options['debug']) {
+            echo "Start index (first after start date): $startIndex\n";
+            echo "End index (last before end date): $endIndex\n";
+        }
+        
+        // 3. Extract slice (as Go does with generalLedger[timeStartIndex:timeEndIndex+1])
+        $filtered = [];
+        if ($startIndex <= $endIndex) {
+            $filtered = array_slice($transactions, $startIndex, $endIndex - $startIndex + 1);
+        }
         
         if ($this->options['debug']) {
             echo "Transactions after date filtering: " . count($filtered) . "\n\n";
@@ -222,16 +268,27 @@ class EquityCLI
                 echo "Last filtered transaction: " . 
                      end($filtered)->date->format('Y/m/d') . " - " . 
                      end($filtered)->payee . "\n\n";
+                
+                // Show all filtered transactions for debug
+                if (count($filtered) <= 20) {
+                    echo "All filtered transactions:\n";
+                    foreach ($filtered as $i => $t) {
+                        echo sprintf("%3d", $i) . ": " . 
+                             $t->date->format('Y/m/d') . " - " . 
+                             $t->payee . "\n";
+                    }
+                    echo "\n";
+                }
             }
         }
         
-        // Apply payee filter
+        // 4. Apply payee filter (as Go does with strings.Contains)
         if (!empty($this->options['payee'])) {
             $originalCount = count($filtered);
             $filtered = array_filter($filtered, function($transaction) {
                 return stripos($transaction->payee, $this->options['payee']) !== false;
             });
-            $filtered = array_values($filtered);
+            $filtered = array_values($filtered); // Reindex
             
             if ($this->options['debug']) {
                 echo "Transactions after payee filter: " . count($filtered) . 
@@ -248,25 +305,31 @@ class EquityCLI
             echo "=== BALANCE CALCULATION ===\n";
         }
         
-        // Calculate accumulated balances
+        // Calculate accumulated balances (same logic as Go)
         $balances = [];
         foreach ($filtered as $transaction) {
             foreach ($transaction->accountChanges as $accountChange) {
                 if ($accountChange->balance === null) {
+                    if ($this->options['debug']) {
+                        echo "WARNING: null balance for account: " . 
+                             $accountChange->name . " in transaction: " . 
+                             $transaction->payee . "\n";
+                    }
                     continue;
                 }
                 
                 $accountName = $accountChange->name;
+                $changeValue = $accountChange->balance->toFloat(DISPLAY_PRECISION);
                 
                 if (!isset($balances[$accountName])) {
                     $balances[$accountName] = SimpleRational::zero();
                 }
                 
+                $oldBalance = $balances[$accountName]->toFloat(DISPLAY_PRECISION);
                 $balances[$accountName] = $balances[$accountName]->plus($accountChange->balance);
+                $newBalance = $balances[$accountName]->toFloat(DISPLAY_PRECISION);
                 
                 if ($this->options['debug']) {
-                    $changeValue = $accountChange->balance->toFloat(DISPLAY_PRECISION);
-                    $newBalance = $balances[$accountName]->toFloat(DISPLAY_PRECISION);
                     echo "Transaction: " . $transaction->date->format('Y/m/d') . 
                          " | Account: " . str_pad($accountName, 30) . 
                          " | Change: " . str_pad(sprintf("%8.2f", $changeValue), 10) .
@@ -284,11 +347,13 @@ class EquityCLI
             echo "\n";
         }
         
-        // Remove zero balance accounts
+        // Remove zero balance accounts (as Go does with ratZero.Cmp)
         $nonZeroBalances = [];
         foreach ($balances as $name => $balance) {
             if (!$balance->isZero()) {
                 $nonZeroBalances[$name] = $balance;
+            } elseif ($this->options['debug']) {
+                echo "Removing zero balance account: $name\n";
             }
         }
         
@@ -298,23 +363,59 @@ class EquityCLI
         }
         
         // Create equity transaction
-        $lastTransaction = end($filtered);
-        $date = $lastTransaction->date;
+        $transaction = new \LedgerPHP\Transaction("Opening Balances", new \DateTime());
         
-        echo $date->format(TRANSACTION_DATE_FORMAT) . " Opening Balances\n";
+        // Use date from last filtered transaction (as Go does)
+        if (!empty($filtered)) {
+            $lastTransaction = end($filtered);
+            $transaction->date = $lastTransaction->date;
+            
+            if ($this->options['debug']) {
+                echo "Using date from last transaction: " . 
+                     $transaction->date->format('Y/m/d') . "\n";
+            }
+        }
         
-        // Print accounts sorted
+        // Add non-zero balance accounts (sorted as Go does)
         ksort($nonZeroBalances);
+        foreach ($nonZeroBalances as $name => $balance) {
+            $accountChange = new \LedgerPHP\AccountChange();
+            $accountChange->name = $name;
+            $accountChange->balance = $balance;
+            $transaction->accountChanges[] = $accountChange;
+        }
         
+        // Print transaction
+        if ($this->options['debug']) {
+            echo "\n=== FINAL TRANSACTION ===\n";
+        }
+        $this->printTransaction($transaction);
+    }
+    
+    private function printTransaction($transaction): void
+    {
+        echo $transaction->date->format(TRANSACTION_DATE_FORMAT) . 
+             " " . $transaction->payee . "\n";
+        
+        // Find maximum name length
+        $maxNameLength = 0;
+        foreach ($transaction->accountChanges as $accountChange) {
+            $nameLength = strlen($accountChange->name);
+            if ($nameLength > $maxNameLength) {
+                $maxNameLength = $nameLength;
+            }
+        }
+        
+        // Define column for values
         $availableWidth = $this->options['columns'] - 4;
         $valueWidth = 12;
+        $nameColumn = min($maxNameLength + 4, $availableWidth - $valueWidth);
+        if ($nameColumn > 50) $nameColumn = 50;
         
-        foreach ($nonZeroBalances as $name => $balance) {
-            $balanceStr = $balance->toFloat(DISPLAY_PRECISION);
+        foreach ($transaction->accountChanges as $accountChange) {
+            $balanceStr = $accountChange->balance->toFloat(DISPLAY_PRECISION);
+            $name = $accountChange->name;
             $nameLength = strlen($name);
-            
-            $nameColumn = min($nameLength + 4, $availableWidth - $valueWidth);
-            if ($nameColumn > 50) $nameColumn = 50;
             
             if ($nameLength > $nameColumn - 4) {
                 $maxDisplayLength = $nameColumn - 7;
